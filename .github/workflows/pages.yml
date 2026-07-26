@@ -1,0 +1,115 @@
+name: pages
+
+# Landing page for the public demo repo. Rebuilds when the private repo's CI publishes a release here
+# (release: published), on direct pushes, and on demand. This repo is PUBLIC, so GitHub Pages is free.
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate static site
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p _site
+          cat > _site/index.html <<EOF
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>eManagerSimulationHandler — demo</title>
+            <style>
+              :root { color-scheme: light dark; }
+              body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+                     max-width: 52rem; margin: 3rem auto; padding: 0 1.25rem; line-height: 1.6; }
+              h1 { margin-bottom: .25rem; }
+              .sub { color: #666; margin-top: 0; }
+              .cards { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1.5rem 0; }
+              .card { flex: 1 1 14rem; border: 1px solid #8884; border-radius: .75rem; padding: 1rem 1.25rem; }
+              a.btn { display: inline-block; margin-top: .5rem; padding: .5rem .9rem; border-radius: .5rem;
+                      background: #0b5cff; color: #fff; text-decoration: none; font-weight: 600; }
+              code { background: #8882; padding: .1rem .35rem; border-radius: .3rem; }
+              pre { background: #8881; padding: .9rem; border-radius: .6rem; overflow:auto; }
+              footer { margin-top: 2.5rem; color: #888; font-size: .9rem; }
+            </style>
+          </head>
+          <body>
+            <h1>eManagerSimulationHandler <span class="sub">— demo</span></h1>
+            <p class="sub">Simulates the human operator working AutoStore ports against an Element Logic eManager.</p>
+
+            <p>These downloads are a <strong>self-contained demo</strong>: the .NET 9 runtime <em>and</em> a
+               built-in <strong>mock eManager</strong> are bundled, so the app runs standalone &mdash;
+               no .NET installation and no real eManager required.</p>
+
+            <div class="cards">
+              <div class="card">
+                <h3>Latest release</h3>
+                <p>Stable, version-tagged demo downloads for Windows and Linux.</p>
+                <a class="btn" href="https://github.com/${REPO}/releases/latest">Latest release &rarr;</a>
+              </div>
+              <div class="card">
+                <h3>Latest main build</h3>
+                <p>Rolling pre-release that tracks the newest build.</p>
+                <a class="btn" href="https://github.com/${REPO}/releases/tag/latest">Rolling build &rarr;</a>
+              </div>
+              <div class="card">
+                <h3>All releases</h3>
+                <p>Browse every published demo version.</p>
+                <a class="btn" href="https://github.com/${REPO}/releases">All releases &rarr;</a>
+              </div>
+            </div>
+
+            <h2>How to run</h2>
+            <ol>
+              <li>Download the zip for your OS from a release above.</li>
+              <li>Unzip it anywhere.</li>
+              <li>Start the server:</li>
+            </ol>
+            <pre>Windows:  EManagerSimulationHandler.Web.exe
+          Linux:    chmod +x ./EManagerSimulationHandler.Web
+                    ./EManagerSimulationHandler.Web</pre>
+            <p>Then open the URL printed in the console (default <code>http://localhost:5000</code>).
+               The demo starts on the built-in mock eManager, so the dashboard is live immediately.</p>
+
+            <footer>Public demo mirror &middot; source is maintained privately.</footer>
+          </body>
+          </html>
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
