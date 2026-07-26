@@ -34,18 +34,7 @@ jobs:
           else
             echo "No WASM app published yet; serving a placeholder landing page."
             mkdir -p app
-            cat > app/index.html <<'EOF'
-            <!doctype html>
-            <html lang="en"><head><meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>eManagerSimulationHandler — demo</title>
-            <style>body{font-family:system-ui,sans-serif;max-width:48rem;margin:4rem auto;padding:0 1rem;line-height:1.6}</style>
-            </head><body>
-            <h1>eManagerSimulationHandler — demo</h1>
-            <p>The in-browser WebAssembly demo is being published. Please check back shortly.</p>
-            <p><a href="https://github.com/BenSieElementLogic/eManagerSimulationHandler-releases/releases">Downloads &amp; releases &rarr;</a></p>
-            </body></html>
-            EOF
+            printf '%s\n' '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>eManagerSimulationHandler — demo</title></head><body style="font-family:system-ui,sans-serif;max-width:48rem;margin:4rem auto;padding:0 1rem;line-height:1.6"><h1>eManagerSimulationHandler — demo</h1><p>The in-browser WebAssembly demo is being published. Please check back shortly.</p><p><a href="https://github.com/BenSieElementLogic/eManagerSimulationHandler-releases/releases">Downloads &amp; releases &rarr;</a></p></body></html>' > app/index.html
           fi
           # _framework starts with an underscore, which Jekyll would strip — disable Jekyll.
           touch app/.nojekyll
