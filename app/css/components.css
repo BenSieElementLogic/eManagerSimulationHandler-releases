@@ -1,0 +1,62 @@
+/*
+ * Muse / Element Logic component patterns (spec 0008).
+ * Lifted verbatim from docs/muse-design-system.md. Uses the tokens (and legacy aliases) from
+ * tokens.css. Reduced motion is respected in dashboard.css.
+ */
+
+/* Buttons — primary + ghost + square icon */
+button { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-sm);
+  background:var(--acc); color:var(--color-on-accent); border:none; border-radius:var(--radius-md);
+  padding:var(--space-sm) var(--space-xl); font-family:var(--font-body); font-weight:600;
+  line-height:1.25; cursor:pointer; font-size:14px; transition:var(--transition-fast); }
+button:hover:not(:disabled) { background:var(--color-brand-hover); }
+button:disabled { opacity:.45; cursor:not-allowed; }
+button.ghost { background:var(--color-surface); color:var(--txt); border:1px solid var(--color-border); }
+.icon-btn { width:44px; min-width:44px; height:44px; padding:0; }
+
+/* Panel / card container */
+.panel { background:var(--panel); border:1px solid var(--color-border-subtle); border-radius:16px;
+  padding:16px; margin-bottom:16px; box-shadow:var(--shadow-card);
+  animation:reveal var(--transition-panel) both; }
+
+/* Stat / KPI tile — <div class="card ok"><div class="n">42</div><div class="l">LABEL</div></div> */
+.card { background:var(--color-surface); border:1px solid var(--color-border-subtle); border-radius:12px;
+  padding:12px 16px; min-width:150px; box-shadow:var(--shadow-card);
+  transition:box-shadow var(--transition-fast), transform var(--transition-fast); }
+.card:hover { box-shadow:var(--shadow-lift); transform:translateY(-1px); }
+.card .n { font-size:30px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.1; }
+.card .l { font-size:13px; color:var(--mut); text-transform:uppercase; letter-spacing:.04em; }
+.card.ok .n{color:var(--ok);} .card.warn .n{color:var(--warn);} .card.bad .n{color:var(--bad);}
+
+/* Table — sticky header, hover rows, right-aligned numerics */
+.tablewrap { max-height:420px; overflow:auto; background:var(--color-surface);
+  border:1px solid var(--color-border-subtle); border-radius:16px; box-shadow:var(--shadow-card); }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th,td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--color-border-subtle); white-space:nowrap; }
+th { position:sticky; top:0; background:var(--color-surface); color:var(--mut); font-weight:600;
+  letter-spacing:.02em; border-bottom:1px solid var(--color-border); }
+.tablewrap tbody tr:hover { background:var(--color-row-hover); }
+.num { text-align:right; font-variant-numeric:tabular-nums; }
+
+/* Status pill — soft wash + leading ● dot */
+.pill { display:inline-flex; align-items:center; gap:4px; padding:2px 10px; border-radius:8px;
+  font-size:13px; font-weight:600; background:var(--color-border-subtle); color:var(--mut); }
+.pill::before { content:"\25CF"; font-size:8px; line-height:1; }
+.pill.ok  { color:var(--color-success); background:var(--color-soft-green); }
+.pill.warn{ color:var(--color-warning); background:var(--color-soft-amber); }
+.pill.bad { color:var(--color-danger);  background:var(--color-soft-red); }
+
+/* Tabs — segmented chips */
+.tab { display:inline-flex; align-items:center; gap:8px; background:var(--color-surface); color:var(--mut);
+  border:1px solid var(--color-border); border-radius:8px; padding:8px 12px; font-weight:600; font-size:14px;
+  cursor:pointer; transition:background .12s, color .12s, border-color .12s; }
+.tab:hover  { color:var(--txt); background:var(--color-row-hover); }
+.tab.active { background:var(--color-soft-blue); color:var(--color-brand); border-color:var(--color-brand); }
+
+/* Inputs — brand focus ring (accessibility signature) */
+select, input[type=number], input[type=range], input[type=text] {
+  background:var(--color-surface); color:var(--txt); border:1px solid var(--color-border);
+  border-radius:8px; padding:8px 10px; font:inherit; font-size:14px; }
+select:focus, input:focus { outline:none; border-color:var(--color-brand);
+  box-shadow:0 0 0 3px var(--color-soft-blue); }
+input[type=range] { accent-color:var(--color-brand); }

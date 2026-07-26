@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>eManager Simulation — In-browser Demo</title>
+
+  <!-- GitHub Pages serves this app under a subpath; CI rewrites this base href at publish time.
+       For a local check the app is published with base href "/". -->
+  <base href="/eManagerSimulationHandler-releases/" />
+
+  <!-- Fonts & icons: Roboto + Font Awesome 6.5.2 via pinned CDN (FA with SRI). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" />
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+  <!-- Muse design system: tokens, components, then dashboard layout. -->
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+</head>
+<body>
+  <!-- Boot overlay shown until the .NET WebAssembly runtime has started. -->
+  <div id="boot-overlay" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+       flex-direction:column;gap:16px;background:#1c2b3a;color:#e8eef4;z-index:9999;font-family:Roboto,system-ui,sans-serif">
+    <i class="fa-solid fa-warehouse" style="font-size:44px;opacity:.9"></i>
+    <div style="font-size:18px;font-weight:600">eManager Simulation</div>
+    <div style="opacity:.75"><i class="fa-solid fa-spinner fa-spin"></i> Loading in-browser simulation…</div>
+  </div>
+
+  <!-- Signature floating dark rail. -->
+  <aside class="rail">
+    <a class="rail-logo" title="eManager Sim"><i class="fa-solid fa-warehouse"></i></a>
+    <nav class="rail-nav">
+      <a class="rail-icon is-active" data-view="dashboard" href="#dashboard" title="Dashboard"><i class="fa-solid fa-gauge-high"></i></a>
+      <a class="rail-icon" data-view="orders" href="#orders" title="Actual orders"><i class="fa-solid fa-clipboard-list"></i></a>
+      <a class="rail-icon" data-view="shift" href="#shift" title="Shift plan"><i class="fa-solid fa-calendar-days"></i></a>
+      <a class="rail-icon" data-view="trace" href="#trace" title="Trace"><i class="fa-solid fa-list-ul"></i></a>
+      <a class="rail-icon" data-view="config" href="#config" title="Config"><i class="fa-solid fa-sliders"></i></a>
+    </nav>
+    <div class="rail-avatar" title="Element Logic">EL</div>
+  </aside>
+
+  <main class="app-main">
+    <header class="page-header">
+      <div class="eyebrow">Element Logic · eManager Sim</div>
+      <h1><i class="fa-solid fa-gauge-high brand-icon"></i> Operator Simulation Dashboard</h1>
+      <p class="sub">
+        Live AutoStore port operator simulation — running entirely in your browser (WebAssembly)
+        <span id="conn" class="conn connecting">connecting…</span>
+      </p>
+    </header>
+
+    <!-- ===== Dashboard view: KPI + controls ===== -->
+    <div class="view" data-view="dashboard">
+      <section id="dashboard" class="kpi-grid" aria-label="Key performance indicators">
+        <div class="card"><div class="n" data-kpi="totalPicks">0</div><div class="l">Total picks</div></div>
+        <div class="card"><div class="n" data-kpi="totalPutaways">0</div><div class="l">Total putaways</div></div>
+        <div class="card"><div class="n" data-kpi="missionsInProgress">0</div><div class="l">In progress</div></div>
+        <div class="card bad"><div class="n" data-kpi="missionsFailed">0</div><div class="l">Failed</div></div>
+        <div class="card"><div class="n" data-kpi="completedPicklists">0</div><div class="l">Picklists done</div></div>
+        <div class="card"><div class="n" data-kpi="averageWorktime">0.0s</div><div class="l">Avg worktime</div></div>
+        <div class="card ok"><div class="n" data-kpi="throughputPerHour">0</div><div class="l">Throughput / hr</div></div>
+      </section>
+
+      <section class="panel controls" aria-label="Simulation controls">
+        <button id="btn-start"><i class="fa-solid fa-play"></i> Start</button>
+        <button id="btn-stop" class="ghost"><i class="fa-solid fa-stop"></i> Stop</button>
+        <button id="btn-seed" class="ghost"><i class="fa-solid fa-seedling"></i> Seed demo</button>
+        <button id="btn-clear" class="ghost" title="Reset the KPIs / statistics"><i class="fa-solid fa-eraser"></i> Clear</button>
+        <div class="spacer"></div>
+        <span class="sim-clock-wrap" title="Simulation time — a virtual clock that starts at the shift begin and runs from there">
+          <i class="fa-solid fa-clock"></i>
+          <span class="sim-clock-label">Sim time</span>
+          <span id="sim-clock" class="sim-clock">--:--:--</span>
+        </span>
+        <span id="sim-state" class="pill">stopped</span>
+      </section>
+
+      <div class="dash-lower">
+        <!-- Shift status tiles -->
+        <section class="panel">
+          <h2 class="section-title"><i class="fa-solid fa-calendar-days"></i> Shift status</h2>
+          <div class="kpi-grid">
+            <div class="card"><div class="n" id="shift-active">—</div><div class="l">Active shift</div></div>
+            <div class="card"><div class="n" id="shift-count">0</div><div class="l">Shifts configured</div></div>
+            <div class="card ok"><div class="n" id="shift-working">0</div><div class="l">Operators working</div></div>
+            <div class="card warn"><div class="n" id="shift-break">0</div><div class="l">On break</div></div>
+          </div>
+          <p class="sub" id="shift-detail" style="margin:12px 0 0"></p>
+        </section>
+
+        <!-- AutoStore top-down grid -->
+        <section class="panel">
+          <h2 class="section-title"><i class="fa-solid fa-border-all"></i> AutoStore grid (top view)</h2>
+          <div class="grid-legend">
+            <span class="lg"><span class="cell-swatch closed"></span> Port closed</span>
+            <span class="lg"><span class="cell-swatch open"></span> Port open</span>
+            <span class="lg"><span class="cell-swatch bin"></span> Bin in port</span>
+          </div>
+          <div id="autostore-grid" class="autostore-grid"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ===== Actual orders view (current work in eManager) ===== -->
+    <section class="view hidden panel" data-view="orders" id="orders">
+      <h2 class="section-title"><i class="fa-solid fa-clipboard-list"></i> Actual orders in eManager</h2>
+      <p class="sub" style="margin:0 0 12px">The work currently present in the eManager, per port.</p>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Port</th><th>Kind</th><th class="num">Qty</th><th>Location</th><th>Picklist</th><th>Status</th></tr>
+          </thead>
+          <tbody id="orders-body">
+            <tr><td colspan="6" class="empty">No current orders.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Config view (eManager connection + export config) ===== -->
+    <section class="view hidden" data-view="config" id="config">
+      <section class="panel">
+        <h2 class="section-title"><i class="fa-solid fa-sliders"></i> eManager configuration</h2>
+        <p class="sub" style="margin:0 0 12px">This in-browser demo always runs against the built-in mock eManager. Connecting to a real eManager over HTTP is not available in the browser build.</p>
+        <div class="shift-new">
+          <label>Mode
+            <select id="cfg-mode">
+              <option value="Mock" id="cfg-mode-mock">Mock (built-in)</option>
+              <option value="Real" disabled>Real (HTTP) — N/A in browser</option>
+            </select>
+          </label>
+          <label hidden>Base URL <input type="text" id="cfg-baseuri" placeholder="https://emanager.example/" style="width:260px" /></label>
+          <label hidden>Username <input type="text" id="cfg-username" /></label>
+          <label hidden>Password <input type="password" id="cfg-password" placeholder="•••• (unchanged)" /></label>
+          <button id="btn-apply-config" hidden><i class="fa-solid fa-check"></i> Apply</button>
+          <span id="cfg-msg" class="pill"></span>
+        </div>
+        <p class="sub" id="cfg-conn" style="margin:12px 0 0"></p>
+      </section>
+
+      <!-- API config: demo/generation behaviour of the (mock) API -->
+      <section class="panel" id="cfg-api-panel">
+        <h2 class="section-title"><i class="fa-solid fa-robot"></i> API config</h2>
+        <div class="controls">
+          <label class="chk" title="Keep generating pick/putaway tasks on open ports (mock only)"><input type="checkbox" id="chk-auto" /> Continuous order generation</label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="section-title"><i class="fa-solid fa-list-check"></i> Export configurations</h2>
+        <div class="controls" style="margin-bottom:var(--space-lg)">
+          <button id="btn-sync" title="Transmit / re-transmit the export configuration to the eManager"><i class="fa-solid fa-rotate"></i> Sync</button>
+          <button id="btn-uninstall" class="ghost" title="Remove all export configurations from the eManager"><i class="fa-solid fa-trash"></i> Uninstall</button>
+          <span id="cfg-export-status" class="pill">idle</span>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Name</th><th>Transaction</th><th>Enabled</th></tr></thead>
+            <tbody id="config-exports-body">
+              <tr><td colspan="3" class="empty">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- ===== Shift plan view (staffing drives port activity) ===== -->
+    <section class="view hidden" data-view="shift" id="shift">
+      <section class="panel">
+        <h2 class="section-title"><i class="fa-solid fa-calendar-days"></i> Shift plan</h2>
+        <p class="sub" style="margin:0 0 12px">A port only works when a person is assigned to it in the current shift and not on a break. Staffing drives each port open/closed live.</p>
+        <div class="shift-new">
+          <label>New shift
+            <input type="text" id="shift-name" placeholder="e.g. Early" />
+          </label>
+          <label>Start <input type="time" id="shift-start" value="08:00" /></label>
+          <label>End <input type="time" id="shift-end" value="16:00" /></label>
+          <button id="btn-add-shift"><i class="fa-solid fa-plus"></i> Add shift</button>
+          <label>Default worktime (s) <input type="number" id="default-worktime" min="0" step="0.5" value="2" /></label>
+          <label title="Random ± offset applied to each pick/putaway round">Randomness ±% <input type="number" id="worktime-randomness" min="0" max="100" step="5" value="0" /></label>
+          <div class="spacer"></div>
+          <button id="btn-apply-staffing"><i class="fa-solid fa-check"></i> Apply plan</button>
+          <button id="btn-clear-staffing" class="ghost" title="Remove staffing — ports run freely again"><i class="fa-solid fa-eraser"></i> Clear plan</button>
+          <span id="staffing-msg" class="pill"></span>
+        </div>
+      </section>
+      <div id="shifts-list"></div>
+    </section>
+
+    <!-- ===== Trace view ===== -->
+    <section class="view hidden panel" data-view="trace" id="trace">
+      <h2 class="section-title"><i class="fa-solid fa-list-ul"></i> Trace</h2>
+      <div class="trace-toolbar">
+        <label>Port
+          <select id="trace-port"><option value="">All ports</option></select>
+        </label>
+        <label>Direction
+          <select id="trace-dir"><option value="">All</option><option value="RECV">RECV →</option><option value="SND">SND ←</option><option value="WORK">WORK ⚙</option></select>
+        </label>
+        <div class="spacer"></div>
+        <span id="trace-count" class="pill"></span>
+        <button id="btn-trace-clear" class="ghost"><i class="fa-solid fa-eraser"></i> Clear view</button>
+      </div>
+      <div class="tablewrap trace-list">
+        <table>
+          <thead>
+            <tr><th>When</th><th>Dir</th><th>Port</th><th>Transaction</th></tr>
+          </thead>
+          <tbody id="trace-body">
+            <tr><td colspan="4" class="empty">No transactions yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="sub" style="margin:32px 0 12px;opacity:.7">
+      In-browser WebAssembly demo · <a href="downloads.html">Downloads &amp; releases</a> ·
+      Element Logic eManager Simulation Handler
+    </footer>
+  </main>
+
+  <!-- Blazor WebAssembly error banner. -->
+  <div id="blazor-error-ui" style="display:none">
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+  </div>
+
+  <!-- Boot the .NET runtime, then load the dashboard's data layer (app.js). -->
+  <script src="_framework/blazor.webassembly.js" autostart="false"></script>
+  <script type="module">
+    try {
+      await Blazor.start();
+      globalThis.__emsimReady = true;
+      document.getElementById('boot-overlay')?.remove();
+      await import('./js/app.js');
+    } catch (err) {
+      console.error('Failed to start the in-browser simulation', err);
+      const o = document.getElementById('boot-overlay');
+      if (o) o.querySelector('div:last-child').textContent = 'Failed to load. Please reload the page.';
+    }
+  </script>
+</body>
+</html>
