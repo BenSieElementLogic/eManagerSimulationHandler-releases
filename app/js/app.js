@@ -18,7 +18,30 @@ import {
 // snapshot. Only these three functions (control/getStatus/apiGetJson) — plus connect() below —
 // changed; every render function is untouched.
 const ASM = 'EManagerSimulationHandler.Wasm';
-const invoke = (method, ...args) => globalThis.DotNet.invokeMethodAsync(ASM, method, ...args);
+const invokeRaw = (method, ...args) => globalThis.DotNet.invokeMethodAsync(ASM, method, ...args);
+
+// Every bridge call is failure-tolerant: a rejected interop call must never take down the poll/tick
+// loops or the boot sequence. Repeated failures flip the connection pill so a dead runtime is visible
+// instead of the UI silently claiming "live" forever.
+let bridgeFailures = 0;
+const FAILURES_BEFORE_OFFLINE = 5;
+
+async function invoke(method, ...args) {
+  try {
+    const result = await invokeRaw(method, ...args);
+    if (bridgeFailures > 0) {
+      bridgeFailures = 0;
+      setConn('online', 'live');
+    }
+    return result;
+  } catch (err) {
+    if (++bridgeFailures === FAILURES_BEFORE_OFFLINE) {
+      setConn('offline', 'simulation error');
+    }
+    console.error(`bridge ${method} failed`, err);
+    return null;
+  }
+}
 
 function parse(json) {
   if (json == null) {
@@ -83,14 +106,36 @@ function setConn(state, text) {
 
 function connect() {
   setConn('online', 'live');
+
+  // Both loops guard against re-entrancy: a slow/awaiting bridge call must not have a second one
+  // interleave with it (the Core engine is not re-entrant), and neither loop may ever stall.
+  let polling = false;
   setInterval(async () => {
-    const snap = parse(await invoke('GetSnapshotJson'));
-    if (snap) {
-      applySnapshot(snap);
+    if (polling) {
+      return;
+    }
+    polling = true;
+    try {
+      const snap = parse(await invoke('GetSnapshotJson'));
+      if (snap) {
+        applySnapshot(snap);
+      }
+    } finally {
+      polling = false;
     }
   }, 250);
-  setInterval(() => {
-    invoke('Tick');
+
+  let ticking = false;
+  setInterval(async () => {
+    if (ticking) {
+      return;
+    }
+    ticking = true;
+    try {
+      await invoke('Tick');
+    } finally {
+      ticking = false;
+    }
   }, 200);
 }
 
@@ -594,22 +639,27 @@ async function init() {
   wireShiftEditor();
   wireTrace();
   wireConfig();
+
+  // Start the poll/tick loops FIRST: a failure while restoring the initial state must never leave the
+  // dashboard rendered-but-frozen because the intervals were never created.
+  connect();
   await loadStaffingFromServer();
-  setConn('connecting', 'connecting…');
   const status = await getStatus();
   if (status) {
     applyStatus(status);
     worktimeInput.value = String(status.worktimeMeanSeconds);
     if (randomnessInput) randomnessInput.value = String(status.worktimeRandomnessPercent ?? 0);
   }
-  connect();
 
   // Tick the virtual clock every second so the dashboard time (and break-sensitive shift tiles)
-  // stay live even between WebSocket snapshots.
+  // stay live even between snapshots.
   setInterval(() => {
     renderSimClock();
     renderShiftTiles();
   }, 1000);
 }
 
-init();
+init().catch((err) => {
+  console.error('dashboard boot failed', err);
+  setConn('offline', 'boot failed');
+});
