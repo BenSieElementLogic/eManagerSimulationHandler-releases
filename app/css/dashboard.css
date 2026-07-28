@@ -108,6 +108,15 @@ body { margin: 0; min-height: 100vh; }
 .sim-clock-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--overlay-on-dark-strong); font-weight: 600; }
 .sim-clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 18px; letter-spacing: .02em; min-width: 8ch; text-align: right; }
 
+/* ---- simulation speed factor (x1-x20) ---- */
+.sim-speed-wrap { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px;
+  border-radius: var(--radius-md); background: var(--color-header); color: #fff; }
+.sim-speed-wrap i { color: var(--color-brand); }
+.sim-speed-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--overlay-on-dark-strong); font-weight: 600; }
+/* A range input has no intrinsic width in a flex row, unlike a <select> — size it explicitly. */
+#sim-speed { width: 120px; accent-color: var(--color-brand); cursor: pointer; vertical-align: middle; }
+.sim-speed-value { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 16px; min-width: 4ch; text-align: right; }
+
 /* ---- panels grid (ports | missions) ---- */
 .panels { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-xl); align-items: start; }
 .missions-list { max-height: 420px; overflow: auto; }
@@ -137,6 +146,9 @@ body { margin: 0; min-height: 100vh; }
   padding: var(--space-sm) 0; border-bottom: 1px solid var(--color-border-subtle); }
 .assign-arrow { color: var(--mut); font-weight: 600; }
 .assign-add { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-lg); }
+.staff-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); margin-top: var(--space-sm); }
+.person-pattern { width: 200px; }
+.staff-coverage { margin-top: var(--space-sm); font-size: 13px; color: var(--mut); }
 .breaks { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-xs); margin-left: auto; }
 .break-pill .link-x { background: none; border: none; color: inherit; cursor: pointer; padding: 0 0 0 4px; font-weight: 700; }
 .brk { width: auto; }
@@ -175,6 +187,12 @@ tr.trace-work .trace-dir-cell { color: var(--color-warning); }
 .port-cell.closed { background: var(--color-danger); }
 .port-cell.open { background: var(--color-success); }
 .port-cell.bin { background: var(--color-warning); color: var(--color-text); }
+
+/* ---- version line (spec 0014 strand A) ----
+   Mirrored from the server host. The update-panel rules that sit beside this one over there are
+   INTENTIONALLY ABSENT here: this build has no update view (see the note in index.html). */
+.app-version { display: inline-block; margin-left: var(--space-sm); padding: 2px 8px; border-radius: var(--radius-sm);
+               font-size: 12px; font-weight: 600; color: var(--mut); background: var(--color-widget-surface); }
 
 @media (max-width: 900px) { .dash-lower { grid-template-columns: 1fr; } }
 

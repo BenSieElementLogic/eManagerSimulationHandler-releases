@@ -23,15 +23,20 @@
 
   <p><a href="./">&larr; Back to the live in-browser demo</a></p>
 
-  <p>Prefer to run it locally? These downloads are a <strong>self-contained demo</strong>: the .NET 9
-     runtime <em>and</em> a built-in mock eManager are bundled, so the app runs standalone — no .NET
-     installation and no real eManager required.</p>
+  <p>Prefer to run it locally? Every release carries two <strong>self-contained</strong> builds — the
+     .NET 9 runtime is bundled either way, so no .NET installation is needed. The
+     <code>…-demo.zip</code> assets also bundle a built-in mock eManager and run standalone; the
+     assets without that suffix are the production build, which talks to a <em>real</em> eManager
+     only (set the Base URL on the Config page after starting).</p>
 
   <div class="cards">
     <div class="card">
-      <h3>Latest release</h3>
-      <p>Stable, version-tagged demo downloads for Windows and Linux.</p>
-      <a class="btn" href="https://github.com/BenSieElementLogic/eManagerSimulationHandler-releases/releases/latest">Latest release &rarr;</a>
+      <!-- Points at the release LIST. GitHub's "latest release" shortcut means "newest NON-prerelease",
+           and this repo publishes a rolling prerelease, so the old label was misleading (it 302s to the
+           list anyway). The list is always correct, whatever is published. -->
+      <h3>Releases</h3>
+      <p>Every published version, for Windows and Linux.</p>
+      <a class="btn" href="https://github.com/BenSieElementLogic/eManagerSimulationHandler-releases/releases">Releases &rarr;</a>
     </div>
     <div class="card">
       <h3>Latest main build</h3>

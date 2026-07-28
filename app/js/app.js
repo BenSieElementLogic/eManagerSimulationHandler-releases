@@ -10,6 +10,8 @@ import {
   missionStatePill,
   formatQuantity,
   missionActivities,
+  staffingCoverage,
+  virtualNow,
 } from './format.js';
 
 // --- in-browser bridge --------------------------------------------------------------------------
@@ -86,8 +88,10 @@ function applySnapshot(snapshot) {
   latestSnapshot = snapshot;
   const codes = (snapshot.ports ?? []).map((p) => p.portCode).filter(Boolean);
   if (codes.length) {
+    const changed = codes.join('|') !== knownPorts.join('|');
     knownPorts = codes;
     refreshPortOptions();
+    if (changed) renderPortSummary(); // the discovered-port set moved -> refresh the shift view line
   }
   renderKpis(snapshot);
   renderGrid(snapshot);
@@ -141,6 +145,8 @@ function connect() {
 
 // --- controls -----------------------------------------------------------------------------------
 const simState = document.getElementById('sim-state');
+const speedInput = document.getElementById('sim-speed'); // simulation speed factor x1-x20 (dashboard bar)
+const speedValue = document.getElementById('sim-speed-value');
 const worktimeInput = document.getElementById('default-worktime'); // global default worktime (in the Shift view)
 const randomnessInput = document.getElementById('worktime-randomness'); // ±% worktime randomness (Shift view)
 
@@ -152,9 +158,19 @@ function applyStatus(status) {
   simState.className = `pill ${status.isRunning ? 'ok' : ''}`.trim();
   const auto = document.getElementById('chk-auto');
   if (auto) auto.checked = !!status.autoGenerate;
+  applySpeedToControl(status);
   setSimAnchor(status);
   renderSimClock();
   renderShiftTiles();
+}
+
+// Hydrate the speed slider + its readout from the server's factor, without ever fighting a drag in
+// progress: while the user holds the slider its own value wins and only the readout follows it.
+function applySpeedToControl(status) {
+  const factor = Number(status.speedFactor) || 1;
+  const dragging = speedInput != null && document.activeElement === speedInput;
+  if (speedInput && !dragging) speedInput.value = String(factor);
+  if (speedValue) speedValue.textContent = `x${dragging ? speedInput.value : factor}`;
 }
 
 function worktimeLabel(value) {
@@ -177,6 +193,14 @@ function wireControls() {
 
   worktimeInput.addEventListener('change', async () => {
     applyStatus(await control('worktime', { meanSeconds: Number(worktimeInput.value), jitterSeconds: 0 }));
+  });
+  // A range input needs BOTH events: `input` fires on every pixel of the drag (readout only, no
+  // network), `change` fires once on release / keyboard commit and is the one that posts the factor.
+  speedInput?.addEventListener('input', () => {
+    if (speedValue) speedValue.textContent = `x${speedInput.value}`;
+  });
+  speedInput?.addEventListener('change', async () => {
+    applyStatus(await control('speed', { factor: Number(speedInput.value) }));
   });
   randomnessInput?.addEventListener('change', async () => {
     const percent = Math.max(0, Math.min(100, Number(randomnessInput.value) || 0));
@@ -235,7 +259,7 @@ function setView(name) {
     renderShiftTiles();
     if (latestSnapshot) renderGrid(latestSnapshot);
   }
-  if (name === 'shift') renderShifts();
+  if (name === 'shift') { renderPortSummary(); renderShifts(); }
   if (name === 'config') loadConfig();
   if (name === 'trace') {
     refreshTrace();
@@ -272,7 +296,7 @@ function parseHM(s) {
 // --- virtual simulation clock -------------------------------------------------------------------
 // Anchored from the server's status: simMs is the virtual time the server reported at atMs (a local
 // timestamp), so we tick forward using the LOCAL elapsed delta — immune to server/browser clock skew.
-let simAnchor = null; // { simMs, atMs, running }
+let simAnchor = null; // { simMs, atMs, running, speed }
 
 function setSimAnchor(status) {
   if (!status || !status.simulatedTimeUtc) { simAnchor = null; return; }
@@ -280,11 +304,11 @@ function setSimAnchor(status) {
     simMs: Date.parse(status.simulatedTimeUtc),
     atMs: Date.now(),
     running: !!status.clockRunning,
+    speed: Number(status.speedFactor) || 1,
   };
 }
 function virtualNowMs() {
-  if (!simAnchor) return Date.now();
-  return simAnchor.running ? simAnchor.simMs + (Date.now() - simAnchor.atMs) : simAnchor.simMs;
+  return virtualNow(simAnchor, Date.now());
 }
 function nowHM() {
   // The virtual epoch is expressed as a UTC time-of-day, matching the server's shift evaluation.
@@ -411,6 +435,53 @@ function breaksView(assignment) {
   return wrap;
 }
 
+// The discovered ports, in a stable (code) order — the same order the server fills them in.
+function discoveredPorts() {
+  return [...knownPorts].sort((a, b) => String(a).localeCompare(String(b)));
+}
+
+// "N ports discovered from the eManager: P01, P02, P03" — the port list is NOT hand-maintained, it is
+// exactly what the eManager reported (GET api/AutoStorePortInfo), and it is known before Start.
+function renderPortSummary() {
+  const el = document.getElementById('shift-ports-summary');
+  if (!el) return;
+  const ports = discoveredPorts();
+  el.textContent = ports.length
+    ? `${ports.length} port${ports.length === 1 ? '' : 's'} discovered from the eManager: ${ports.join(', ')}`
+    : 'No ports discovered from the eManager — check the Config page.';
+}
+
+function coverageView(shift) {
+  const cover = staffingCoverage(discoveredPorts(), shift.assignments ?? []);
+  const text = cover.unstaffed.length
+    ? `Staffed ${cover.staffed} / ${cover.total} · unstaffed: ${cover.unstaffed.join(', ')}`
+    : `Staffed ${cover.staffed} / ${cover.total}`;
+  return h('div', { class: 'staff-coverage' },
+    h('span', { class: `pill ${cover.unstaffed.length ? 'warn' : 'ok'}`, text }));
+}
+
+// Bulk staffing (spec 0012): one action staffs every discovered port of this shift from a template,
+// instead of appending one assignment at a time. Both buttons edit the DRAFT plan only — the user
+// still presses "Apply plan", exactly as for every other edit in this editor.
+function bulkView(shift, i) {
+  const pattern = h('input', { type: 'text', class: 'person-pattern', value: 'Operator {port}', placeholder: 'Person pattern' });
+  const bulkWt = h('input', { type: 'number', min: '0', step: '0.5', placeholder: 'Worktime s', class: 'wt-input bulk-wt' });
+  const staffAll = h('button', { class: 'staff-all', title: 'Assign every port the eManager reported', onclick: async () => {
+    const body = { plan: staffingPlan, shiftIndex: i, personPattern: pattern.value };
+    if (bulkWt.value !== '') body.worktimeSeconds = Number(bulkWt.value);
+    const filled = await control('staffing/autofill', body);
+    if (filled && Array.isArray(filled.shifts)) {
+      staffingPlan = filled;
+      renderShifts();
+    }
+  } }, h('i', { class: 'fa-solid fa-users' }), document.createTextNode(' Staff all ports'));
+  const unstaffAll = h('button', { class: 'ghost unstaff-all', title: 'Remove every assignment of this shift', onclick: () => {
+    shift.assignments = [];
+    renderShifts();
+  } }, h('i', { class: 'fa-solid fa-user-slash' }), document.createTextNode(' Unstaff all'));
+  return h('div', { class: 'staff-bulk' }, pattern, bulkWt, staffAll, unstaffAll);
+}
+
 function renderShifts() {
   const list = document.getElementById('shifts-list');
   if (!list) return;
@@ -450,6 +521,10 @@ function renderShifts() {
         (shift.assignments ??= []).push(assignment);
         renderShifts();
       } }, h('i', { class: 'fa-solid fa-user-plus' }), document.createTextNode(' Assign'))));
+
+    // Bulk staffing + coverage live in their own containers, NEVER inside .assign-add.
+    panel.append(bulkView(shift, i));
+    panel.append(coverageView(shift));
 
     list.append(panel);
   });
@@ -632,6 +707,24 @@ async function refreshOrders() {
   }));
 }
 
+// --- version line (spec 0014 strand A) ----------------------------------------------------------
+// Read through the bridge from assembly metadata; never a literal in this file (CLAUDE.md §4).
+//
+// MIRRORING NOTE (spec 0014, open question 10): the server host has a whole `update` view wired here —
+// renderVersion + renderUpdate/refreshUpdate/wireUpdate + the restart watcher. Everything except this
+// version line is INTENTIONALLY ABSENT from this in-browser build and must stay absent: a browser tab
+// cannot download to disk, swap a directory or restart a process, and the Pages demo is always-latest
+// by construction (wasm-pages.yml replaces the whole app/ folder on every main push). Do not "fix"
+// this divergence in a mirroring pass; wasm.e2e.mjs asserts the update view is NOT here.
+async function renderVersion() {
+  const el = document.getElementById('app-version');
+  if (!el) return;
+  const v = await apiGetJson('version');
+  if (!v) return;
+  el.textContent = `v${v.version}`;
+  el.title = `Version ${v.informationalVersion} · ${v.runtimeIdentifier} · ${v.variant} build`;
+}
+
 // --- boot ---------------------------------------------------------------------------------------
 async function init() {
   wireControls();
@@ -643,6 +736,7 @@ async function init() {
   // Start the poll/tick loops FIRST: a failure while restoring the initial state must never leave the
   // dashboard rendered-but-frozen because the intervals were never created.
   connect();
+  await renderVersion();
   await loadStaffingFromServer();
   const status = await getStatus();
   if (status) {

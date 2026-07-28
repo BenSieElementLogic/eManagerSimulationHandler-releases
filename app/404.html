@@ -43,6 +43,12 @@
       <a class="rail-icon" data-view="shift" href="#shift" title="Shift plan"><i class="fa-solid fa-calendar-days"></i></a>
       <a class="rail-icon" data-view="trace" href="#trace" title="Trace"><i class="fa-solid fa-list-ul"></i></a>
       <a class="rail-icon" data-view="config" href="#config" title="Config"><i class="fa-solid fa-sliders"></i></a>
+      <!-- MIRRORING NOTE (spec 0014, open question 10): the server host has an
+           `data-view="update"` rail icon and view here. It is INTENTIONALLY ABSENT from this
+           in-browser build and must stay absent — a browser tab cannot write to disk or restart a
+           process, and this Pages demo is always-latest by construction (wasm-pages.yml replaces the
+           whole app/ folder on every main push). Do not "fix" this divergence in a mirroring pass.
+           The version line below IS mirrored. -->
     </nav>
     <div class="rail-avatar" title="Element Logic">EL</div>
   </aside>
@@ -54,6 +60,8 @@
       <p class="sub">
         Live AutoStore port operator simulation — running entirely in your browser (WebAssembly)
         <span id="conn" class="conn connecting">connecting…</span>
+        <!-- Filled from the SimBridge "version" read — never a literal (CLAUDE.md §4). -->
+        <span id="app-version" class="app-version" title="Running version"></span>
       </p>
     </header>
 
@@ -79,6 +87,13 @@
           <i class="fa-solid fa-clock"></i>
           <span class="sim-clock-label">Sim time</span>
           <span id="sim-clock" class="sim-clock">--:--:--</span>
+        </span>
+        <span class="sim-speed-wrap" title="Simulation speed — accelerates the whole simulation, not just the clock">
+          <i class="fa-solid fa-gauge-high"></i>
+          <span class="sim-speed-label">Speed</span>
+          <input type="range" id="sim-speed" min="1" max="20" step="1" value="1"
+                 aria-label="Simulation speed — accelerates the whole simulation, not just the clock" />
+          <span id="sim-speed-value" class="sim-speed-value">x1</span>
         </span>
         <span id="sim-state" class="pill">stopped</span>
       </section>
@@ -177,6 +192,7 @@
       <section class="panel">
         <h2 class="section-title"><i class="fa-solid fa-calendar-days"></i> Shift plan</h2>
         <p class="sub" style="margin:0 0 12px">A port only works when a person is assigned to it in the current shift and not on a break. Staffing drives each port open/closed live.</p>
+        <p class="sub" style="margin:0 0 12px" id="shift-ports-summary">&mdash;</p>
         <div class="shift-new">
           <label>New shift
             <input type="text" id="shift-name" placeholder="e.g. Early" />

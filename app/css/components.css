@@ -4,6 +4,15 @@
  * tokens.css. Reduced motion is respected in dashboard.css.
  */
 
+/*
+ * The `hidden` attribute is nothing but `display:none` in the user-agent sheet, so ANY explicit
+ * display rule below (button, .pill, .upd-asset, …) silently outranks it and the element keeps
+ * rendering while JS believes it is gone. Found live: the update view's Download / Install /
+ * Cancel buttons and its asset row all sat visible with `hidden=true`. Keep this first, and keep
+ * the `!important` — that is what makes the attribute mean what everyone assumes it means.
+ */
+[hidden] { display: none !important; }
+
 /* Buttons — primary + ghost + square icon */
 button { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-sm);
   background:var(--acc); color:var(--color-on-accent); border:none; border-radius:var(--radius-md);

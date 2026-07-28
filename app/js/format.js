@@ -94,3 +94,34 @@ export function missionActivities(snapshot) {
     at: m.timestamp,
   }));
 }
+
+/**
+ * Extrapolate the virtual simulation clock locally between server pushes. `anchor` is
+ * `{ simMs, atMs, running, speed }`: the virtual time the server reported (`simMs`) at the LOCAL instant
+ * `atMs`, so the elapsed delta is skew-free. At a speed factor > 1 the virtual clock advances that many
+ * times faster than the local one — without scaling here the display would drift ~19 virtual seconds per
+ * real second at x20. Frozen while the simulation is stopped; a missing anchor falls back to real time.
+ */
+export function virtualNow(anchor, nowMs) {
+  if (!anchor) {
+    return nowMs;
+  }
+  if (!anchor.running) {
+    return anchor.simMs;
+  }
+  return anchor.simMs + (nowMs - anchor.atMs) * (anchor.speed ?? 1);
+}
+
+/**
+ * Coverage of a shift's assignments against the ports the eManager reported (spec 0012):
+ * `{ total, staffed, unstaffed }`. Port codes match case-insensitively, an assignment naming a port
+ * that was not discovered is ignored (it neither raises `staffed` nor appears in `unstaffed`), a port
+ * assigned twice still counts once, and null/undefined inputs are treated as empty.
+ */
+export function staffingCoverage(portCodes, assignments) {
+  const codes = Array.isArray(portCodes) ? portCodes.filter((c) => c != null && c !== '') : [];
+  const list = Array.isArray(assignments) ? assignments : [];
+  const assigned = new Set(list.map((a) => String(a?.port ?? '').toLowerCase()).filter(Boolean));
+  const unstaffed = codes.filter((c) => !assigned.has(String(c).toLowerCase()));
+  return { total: codes.length, staffed: codes.length - unstaffed.length, unstaffed };
+}
