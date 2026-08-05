@@ -125,3 +125,58 @@ export function staffingCoverage(portCodes, assignments) {
   const unstaffed = codes.filter((c) => !assigned.has(String(c).toLowerCase()));
   return { total: codes.length, staffed: codes.length - unstaffed.length, unstaffed };
 }
+
+/** Pluralise a count: `3 rows`, `1 row`. */
+function countLabel(n, noun) {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * One-line summary of a parsed putaway CSV (spec 0015): how much was understood, how it was
+ * understood (delimiter/encoding — both auto-detected and both worth showing before a write into a
+ * live warehouse), and the batch reference that decides whether a re-send is idempotent.
+ */
+export function putawaySummary(result) {
+  const r = result ?? {};
+  const len = (v) => (Array.isArray(v) ? v.length : 0);
+  const delimiter = r.delimiter === '\t' ? 'tab' : r.delimiter ? `'${r.delimiter}'` : 'unknown';
+  return [
+    countLabel(len(r.rows), 'row'),
+    countLabel(len(r.errors), 'error'),
+    countLabel(len(r.warnings), 'warning'),
+    `delimiter ${delimiter}`,
+    `encoding ${r.encodingName || 'unknown'}`,
+    `reference ${r.batchReference || '—'}`,
+  ].join(' · ');
+}
+
+/**
+ * The live counter line for a running/finished batch. "already stored" (the eManager's 409) is kept
+ * as its own figure: it is a SUCCESS — it is what makes re-running a file the safe recovery action —
+ * so folding it into stored or into failed would misreport every idempotent retry.
+ */
+export function batchCounters(progress) {
+  const p = progress ?? {};
+  const n = (v) => (Number.isFinite(Number(v)) ? Math.trunc(Number(v)) : 0);
+  return `${n(p.sent)} / ${n(p.total)} sent · ${n(p.stored)} stored · ${n(p.alreadyStored)} already stored`
+    + ` · ${n(p.rejected)} rejected · ${n(p.failed)} failed`;
+}
+
+/**
+ * One-line summary of how a putaway CSV's columns were understood (spec 0018). The address mode leads,
+ * and it names the source column that carries it: a file addressed by BIN NUMBER goes somewhere quite
+ * different from one addressed by LOCATION CODE, and mistaking one for the other is the whole reason
+ * this mapping exists.
+ */
+export function mappingSummary(result) {
+  const mapping = result?.mapping ?? {};
+  const columns = Array.isArray(mapping.columns) ? mapping.columns : [];
+  const mode = mapping.addressMode;
+  const carrier = columns.find((c) => c?.target === (mode === 'Bin' ? 'BinId' : 'LocationCode'));
+  const addressing = mode === 'Bin' || mode === 'LocationCode'
+    ? `${mode === 'Bin' ? 'bin number' : 'location code'} ('${carrier?.source ?? '—'}')`
+    : 'no address column mapped';
+  const mapped = columns.filter((c) => c?.target && c.target !== 'Ignore').length;
+  const ignored = columns.length - mapped;
+  return `Addressing: ${addressing} · ${countLabel(mapped, 'column')} mapped · ${ignored} ignored`;
+}

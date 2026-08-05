@@ -261,6 +261,7 @@ function setView(name) {
   }
   if (name === 'shift') { renderPortSummary(); renderShifts(); }
   if (name === 'config') loadConfig();
+  if (name === 'history') refreshHistory();
   if (name === 'trace') {
     refreshTrace();
     if (!tracePoll) tracePoll = setInterval(refreshTrace, 3000);
@@ -275,9 +276,19 @@ function setView(name) {
     clearInterval(ordersPoll);
     ordersPoll = null;
   }
+  if (name === 'host') {
+    refreshHost();
+    if (!hostPoll) hostPoll = setInterval(refreshHost, 2000);
+  } else if (hostPoll) {
+    clearInterval(hostPoll);
+    hostPoll = null;
+  }
 }
 function wireNav() {
   document.querySelectorAll('.rail-icon[data-view]').forEach((a) => {
+    a.addEventListener('click', (e) => { e.preventDefault(); setView(a.dataset.view); });
+  });
+  document.querySelectorAll('a.view-link[data-view]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); setView(a.dataset.view); });
   });
   const initial = (location.hash || '').replace('#', '');
@@ -710,6 +721,15 @@ async function refreshOrders() {
 // --- version line (spec 0014 strand A) ----------------------------------------------------------
 // Read through the bridge from assembly metadata; never a literal in this file (CLAUDE.md §4).
 //
+// MIRRORING NOTE (spec 0015, open question 1): the server host also wires a whole `putaway` view here —
+// initPutaway/parsePutawayFile/renderPutawayPreview/sendPutawayBatch/renderPutawayBatch/wirePutaway and
+// the ~1 Hz batch poll. All of it is INTENTIONALLY ABSENT from this in-browser build and must stay
+// absent: that feature's entire value is writing stock into a REAL customer eManager over
+// POST api/directputaway, and this Pages demo is mock-only with nothing downstream consuming the stored
+// stock. Do not "fix" this divergence in a mirroring pass; wasm.e2e.mjs asserts the view is NOT here.
+// The shared js/format.js IS mirrored byte-for-byte (spec 0012 §5), so putawaySummary/batchCounters
+// exist in this build too — deliberately unused.
+//
 // MIRRORING NOTE (spec 0014, open question 10): the server host has a whole `update` view wired here —
 // renderVersion + renderUpdate/refreshUpdate/wireUpdate + the restart watcher. Everything except this
 // version line is INTENTIONALLY ABSENT from this in-browser build and must stay absent: a browser tab
@@ -725,12 +745,349 @@ async function renderVersion() {
   el.title = `Version ${v.informationalVersion} · ${v.runtimeIdentifier} · ${v.variant} build`;
 }
 
+// --- history data source (per-host seam) --------------------------------------------------------
+// The ONLY host-specific line of the History view. The Web host reads GET /api/history; the browser
+// build answers the same JSON shape from SimBridge. Keeping the seam here, outside the shared block
+// below, is what lets that block stay byte-identical across the two hosts (spec 0022 AC20).
+async function historyJson() {
+  return apiGetJson('history');
+}
+
+// --- history view (spec 0022) --- SHARED BLOCK BEGIN --------------------------------------------
+// The product change log: which version brought what. Everything below is byte-identical in the Web
+// host's app.js and the Wasm host's app.js, and the reviewer diffs the two blocks to prove it (AC20).
+// The only thing that differs between the hosts is the per-host seam historyJson(), defined OUTSIDE
+// this block: GET /api/history in the server build, SimBridge.GetJson('history') in the browser
+// build. Nothing in here branches on the host — the hosts differ in data, never in code.
+//
+// All parsing, grouping, classification and duplicate detection happened in Core. This renders.
+const HISTORY_TYPE_LABEL = { feat: 'new', fix: 'fix', perf: 'faster' };
+const HISTORY_SOURCE_TEXT = {
+  Local: 'This build’s own history',
+  Merged: 'Published history',
+  Unavailable: 'Could not be checked',
+};
+
+function historyEntryRow(entry) {
+  const row = h('div', { class: 'hist-entry' });
+  row.append(h('span', {
+    class: `hist-type hist-type-${entry.type}`,
+    text: HISTORY_TYPE_LABEL[entry.type] ?? entry.type,
+  }));
+  row.append(h('span', { class: 'hist-summary', text: entry.summary }));
+  if (entry.specNumber != null) {
+    row.append(h('span', { class: 'hist-spec', text: `spec ${String(entry.specNumber).padStart(4, '0')}` }));
+  }
+  return row;
+}
+
+// One version's entries. Internal changes (chore/ci/docs/refactor/test/build) start hidden behind a
+// toggle whose label carries the REAL count, so it can never lie about what it is hiding.
+function historyGroupSection(group) {
+  const section = h('section', { class: 'hist-group' });
+
+  const head = h('div', { class: 'hist-head' });
+  head.append(h('h3', {
+    class: 'hist-version',
+    text: group.isUnreleased ? 'Not yet released' : `Version ${group.version ?? group.heading}`,
+  }));
+  if (group.date) head.append(h('span', { class: 'hist-date', text: group.date }));
+  if (group.isRunningVersion) head.append(h('span', { class: 'pill ok hist-running', text: 'you are running this' }));
+  if (group.isUnreleased) {
+    head.append(h('span', { class: 'hist-date', text: 'changes pushed since the last version' }));
+  }
+  section.append(head);
+
+  const entries = Array.isArray(group.entries) ? group.entries : [];
+  const visible = entries.filter((entry) => entry.isUserVisible);
+  const internal = entries.filter((entry) => !entry.isUserVisible);
+
+  if (visible.length === 0 && internal.length === 0) {
+    section.append(h('p', { class: 'sub hist-none', text: 'Nothing recorded for this version.' }));
+    return section;
+  }
+
+  const visibleBox = h('div', { class: 'hist-entries' });
+  for (const entry of visible) visibleBox.append(historyEntryRow(entry));
+  section.append(visibleBox);
+
+  if (internal.length > 0) {
+    const internalBox = h('div', { class: 'hist-entries hist-internal' });
+    internalBox.hidden = true;
+    for (const entry of internal) internalBox.append(historyEntryRow(entry));
+
+    // The count comes from the entries actually rendered, so the label and the rows cannot disagree.
+    const label = (shown) => `${shown ? 'Hide' : 'Show'} ${internal.length} internal change${internal.length === 1 ? '' : 's'}`;
+    const toggle = h('button', { class: 'ghost hist-toggle', type: 'button', text: label(false) });
+    toggle.addEventListener('click', () => {
+      internalBox.hidden = !internalBox.hidden;
+      toggle.textContent = label(!internalBox.hidden);
+    });
+
+    section.append(toggle);
+    section.append(internalBox);
+  }
+
+  return section;
+}
+
+function renderHistory(history) {
+  const groupsEl = document.getElementById('hist-groups');
+  if (!groupsEl) return;
+  const sourceEl = document.getElementById('hist-source');
+  const noteEl = document.getElementById('hist-note');
+  const errorEl = document.getElementById('hist-error');
+  const problemsEl = document.getElementById('hist-problems');
+  const emptyEl = document.getElementById('hist-empty');
+
+  groupsEl.replaceChildren();
+  if (errorEl) { errorEl.textContent = ''; errorEl.hidden = true; }
+  if (problemsEl) { problemsEl.textContent = ''; problemsEl.hidden = true; }
+  if (emptyEl) emptyEl.hidden = true;
+
+  // The request itself failed. Saying nothing here would read as "no changes", which is the one
+  // thing this view must never imply when it does not actually know.
+  if (!history) {
+    if (sourceEl) sourceEl.textContent = 'Could not be checked';
+    if (noteEl) noteEl.textContent = '';
+    if (errorEl) {
+      errorEl.textContent = 'The version history could not be loaded from this app.';
+      errorEl.hidden = false;
+    }
+    return;
+  }
+
+  if (sourceEl) sourceEl.textContent = HISTORY_SOURCE_TEXT[history.state] ?? history.state ?? '';
+  if (noteEl) noteEl.textContent = history.note ?? '';
+
+  // Unavailable renders the LOCAL entries plus a visible error — never an empty list.
+  if (errorEl && history.error) {
+    errorEl.textContent = history.error;
+    errorEl.hidden = false;
+  }
+
+  const problems = Array.isArray(history.problems) ? history.problems : [];
+  if (problemsEl && problems.length > 0) {
+    problemsEl.textContent = `${problems.length} line${problems.length === 1 ? '' : 's'} of the change log could not be read: `
+      + problems.map((problem) => `line ${problem.lineNumber}`).join(', ');
+    problemsEl.hidden = false;
+  }
+
+  const groups = Array.isArray(history.groups) ? history.groups : [];
+  for (const group of groups) groupsEl.append(historyGroupSection(group));
+
+  // Genuinely nothing recorded — a different thing from "we could not find out", and it says so
+  // rather than leaving a blank panel.
+  if (history.isEmpty && emptyEl) emptyEl.hidden = false;
+}
+
+async function refreshHistory() {
+  renderHistory(await historyJson());
+}
+// --- history view (spec 0022) --- SHARED BLOCK END ----------------------------------------------
+// The bridge's Control takes a string body, so the base64 CSV goes straight through — the same bytes
+// the Web host receives, decoded by the same Core reader.
+async function controlCsv(base64) {
+  return parse(await invoke('Control', 'host/picklists', base64));
+}
+
+// --- host/WMS simulator (spec 0016) -------------------------------------------------------------
+// The second role this program plays: the customer's WMS, feeding the eManager picklist waves read
+// from a CSV. Everything below is byte-identical between the two hosts; only controlCsv's transport
+// differs (REST body vs SimBridge argument), and both send the SAME base64 bytes so the reader's
+// BOM / UTF-8 / CP1252 detection behaves the same in the browser demo as on the server.
+let hostPoll = null;
+
+function hostFieldValues() {
+  const num = (id, fallback) => {
+    const raw = document.getElementById(id)?.value;
+    const n = Number(raw);
+    return raw === '' || Number.isNaN(n) ? fallback : n;
+  };
+  return {
+    enabled: !!document.getElementById('host-enabled')?.checked,
+    waveSize: num('host-wave-size', 5),
+    refillThreshold: num('host-refill', 3),
+    completionTimeoutSeconds: num('host-timeout', 15) * 60,
+    loop: !!document.getElementById('host-loop')?.checked,
+  };
+}
+
+// Responses can overtake each other (two field changes in quick succession, or a poll racing a
+// post), and the LAST response to arrive would otherwise win regardless of which request was newest.
+// A monotonic token makes the newest REQUEST the one that renders.
+let hostSeq = 0;
+
+async function applyHostStatus(pending) {
+  const seq = ++hostSeq;
+  const status = await pending;
+  if (seq === hostSeq) renderHost(status);
+}
+
+// Two field changes in quick succession are two independent requests, and the older one can reach the
+// host LAST — leaving the clamped intermediate state ("refill at" clamped against the wave size the
+// user has just replaced) as the final answer, so the run feeds a wave nobody asked for. Chaining
+// alone does NOT fix that, and it is worth spelling out why: with only a chain, the first response
+// arrives before the second request is sent, hydrates its own clamped value straight back into the
+// input, and the second request then faithfully sends that clamped value on. Both halves are needed:
+//   1. the posts are chained, so the wire order is the user's order; and
+//   2. the payload is the intent captured SYNCHRONOUSLY at the change, and only the LAST queued post
+//      is allowed to render — an intermediate response never touches the fields.
+let hostConfigChain = Promise.resolve();
+let hostConfigQueued = 0;
+let hostConfigAnswered = 0;
+
+/// While an edit is still on its way to the host, the host's status is BEHIND the user and must not
+/// be written back into the wave fields.
+function hostConfigSettled() {
+  return hostConfigAnswered === hostConfigQueued;
+}
+
+function postHostConfig() {
+  // Captured in a LOCAL const, read synchronously at the change: the payload this request sends can then
+  // never be swapped for a later edit's values while it waits its turn in the chain.
+  const wanted = hostFieldValues();
+  const mine = ++hostConfigQueued;
+  hostConfigChain = hostConfigChain
+    .catch(() => {})
+    .then(async () => {
+      let status = null;
+      try {
+        status = await control('host/config', wanted);
+      } finally {
+        // Even a failed post must settle, or the fields would never hydrate again.
+        hostConfigAnswered = mine;
+      }
+      if (mine === hostConfigQueued) {
+        applyHostStatus(Promise.resolve(status));
+      }
+    });
+  return hostConfigChain;
+}
+
+// Base64 keeps ONE client code path across REST and the in-browser bridge (spec 0016 §7).
+function toBase64(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function loadHostCsv() {
+  const file = document.getElementById('host-csv')?.files?.[0];
+  const bytes = file
+    ? new Uint8Array(await file.arrayBuffer())
+    : new TextEncoder().encode(document.getElementById('host-csv-paste')?.value ?? '');
+
+  const result = await controlCsv(toBase64(bytes));
+  renderHostLoad(result);
+  await refreshHost();
+}
+
+function renderHostLoad(result) {
+  const msg = document.getElementById('host-load-msg');
+  const list = document.getElementById('host-errors');
+  if (!result) {
+    if (msg) msg.textContent = 'Not loaded — the request failed.';
+    if (list) list.replaceChildren();
+    return;
+  }
+  const errors = result.errors ?? [];
+  if (msg) {
+    // Columns the eManager has no field for are NAMED, not silently dropped: the customer's file carries
+    // task_type/bins/date_sim/day_sim, and a user has to be able to see they were read and ignored.
+    const ignored = result.ignoredColumns ?? [];
+    const ignoredNote = ignored.length ? ` — read but not sent: ${ignored.join(', ')}` : '';
+    msg.textContent = result.accepted
+      ? `Loaded ${result.picklistCount} picklists / ${result.lineCount} lines (delimiter "${result.delimiter}", ${result.encoding})${ignoredNote}`
+      : `Not loaded — ${errors.length} problem${errors.length === 1 ? '' : 's'}:`;
+  }
+  if (list) {
+    list.replaceChildren(...errors.map((e) => h('li', {
+      text: e.lineNumber > 0 ? `line ${e.lineNumber}: ${e.reason}` : e.reason,
+    })));
+  }
+}
+
+function renderHost(status) {
+  if (!status) return;
+  const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = String(value); };
+  const state = document.getElementById('host-state');
+  if (state) {
+    state.textContent = status.state;
+    state.className = `pill ${status.state === 'Feeding' ? 'ok' : status.state === 'Paused' ? 'bad' : ''}`.trim();
+  }
+  set('host-backlog', status.backlogRemaining);
+  set('host-inflight', status.inFlight);
+  set('host-completed', status.completed);
+  set('host-timedout', status.timedOut);
+  set('host-failed', status.submitFailed);
+
+  const err = document.getElementById('host-error');
+  if (err) {
+    err.textContent = status.lastError ?? '';
+    err.hidden = !status.lastError;
+  }
+
+  // Only hydrate the inputs the user is not currently typing into, so a poll never fights the caret —
+  // and only once every edit has been answered. A poll landing between two edits would otherwise
+  // revert the first field to the host's stale value, and the second edit would then snapshot that
+  // reverted value and send it on as if the user had asked for it.
+  if (hostConfigSettled()) {
+    const hydrate = (id, value) => {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) el.value = String(value);
+    };
+    hydrate('host-wave-size', status.waveSize);
+    hydrate('host-refill', status.refillThreshold);
+    hydrate('host-timeout', Math.round(status.completionTimeoutSeconds / 60));
+    const enabled = document.getElementById('host-enabled');
+    if (enabled && document.activeElement !== enabled) enabled.checked = !!status.enabled;
+    const loop = document.getElementById('host-loop');
+    if (loop && document.activeElement !== loop) loop.checked = !!status.loop;
+  }
+
+  const body = document.getElementById('host-inflight-body');
+  if (!body) return;
+  const rows = status.inFlightPicklists ?? [];
+  const warnAt = status.completionTimeoutSeconds * 0.8;
+  body.replaceChildren(...(rows.length
+    ? rows.map((p) => {
+        const tr = document.createElement('tr');
+        // A row past 80% of its budget warns BEFORE it is counted, so a stall is visible early.
+        if (p.ageSeconds >= warnAt) tr.className = 'warn';
+        tr.append(
+          cell(p.picklistId),
+          cell(String(p.lineCount), 'num'),
+          cell(formatWhen(p.releasedAt)),
+          cell(String(Math.round(p.ageSeconds)), 'num'),
+        );
+        return tr;
+      })
+    : [emptyRow(4, 'Nothing in flight.')]));
+}
+
+function refreshHost() {
+  return applyHostStatus(apiGetJson('host/status'));
+}
+
+function wireHost() {
+  document.getElementById('btn-host-load')?.addEventListener('click', loadHostCsv);
+  document.getElementById('btn-host-reset')?.addEventListener('click', () => applyHostStatus(control('host/reset')));
+  for (const id of ['host-enabled', 'host-wave-size', 'host-refill', 'host-timeout', 'host-loop']) {
+    document.getElementById(id)?.addEventListener('change', postHostConfig);
+  }
+}
+
 // --- boot ---------------------------------------------------------------------------------------
 async function init() {
   wireControls();
   wireNav();
   wireShiftEditor();
   wireTrace();
+  wireHost();
   wireConfig();
 
   // Start the poll/tick loops FIRST: a failure while restoring the initial state must never leave the

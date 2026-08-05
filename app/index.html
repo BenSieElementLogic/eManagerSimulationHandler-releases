@@ -41,8 +41,19 @@
       <a class="rail-icon is-active" data-view="dashboard" href="#dashboard" title="Dashboard"><i class="fa-solid fa-gauge-high"></i></a>
       <a class="rail-icon" data-view="orders" href="#orders" title="Actual orders"><i class="fa-solid fa-clipboard-list"></i></a>
       <a class="rail-icon" data-view="shift" href="#shift" title="Shift plan"><i class="fa-solid fa-calendar-days"></i></a>
+      <a class="rail-icon" data-view="host" href="#host" title="Host simulator"><i class="fa-solid fa-truck-ramp-box"></i></a>
       <a class="rail-icon" data-view="trace" href="#trace" title="Trace"><i class="fa-solid fa-list-ul"></i></a>
       <a class="rail-icon" data-view="config" href="#config" title="Config"><i class="fa-solid fa-sliders"></i></a>
+      <!-- MIRRORING NOTE (spec 0015, open question 1): the server host has a
+           `data-view="putaway"` rail icon and a whole "Store items (direct putaway)" view here. It is
+           INTENTIONALLY ABSENT from this in-browser build and must stay absent. That feature exists to
+           write stock into a REAL customer eManager over POST api/directputaway; this Pages demo is
+           mock-only by construction and nothing downstream consumes the stored stock (direct putaway
+           raises no export event and the mock's pick generation does not read stock), so the flow would
+           end at a counter. Do not "fix" this divergence in a mirroring pass; wasm.e2e.mjs asserts the
+           putaway view is NOT here. NOTE: js/format.js IS mirrored byte-for-byte (spec 0012 §5), so its
+           putawaySummary/batchCounters helpers live here too, simply unused. -->
+      <a class="rail-icon" data-view="history" href="#history" title="What’s new"><i class="fa-solid fa-clock-rotate-left"></i></a>
       <!-- MIRRORING NOTE (spec 0014, open question 10): the server host has an
            `data-view="update"` rail icon and view here. It is INTENTIONALLY ABSENT from this
            in-browser build and must stay absent — a browser tab cannot write to disk or restart a
@@ -140,6 +151,52 @@
       </div>
     </section>
 
+    <!-- ===== Host simulator view (CSV -> picklist waves -> eManager) ===== -->
+    <section class="view hidden" data-view="host" id="host">
+      <section class="panel">
+        <h2 class="section-title"><i class="fa-solid fa-truck-ramp-box"></i> Host / WMS simulator</h2>
+        <p class="sub" style="margin:0 0 12px">Load a CSV of picklist items, release them to the eManager in waves, and refill the wave as the eManager reports picklists completed.</p>
+        <div class="host-load">
+          <input type="file" id="host-csv" accept=".csv,text/csv" />
+          <button id="btn-host-load"><i class="fa-solid fa-file-import"></i> Load CSV</button>
+          <button class="ghost" id="btn-host-reset"><i class="fa-solid fa-rotate-left"></i> Reset run</button>
+        </div>
+        <textarea id="host-csv-paste" rows="4" placeholder="&#8230;or paste CSV here (PicklistId;ProductId;Quantity)"></textarea>
+        <div id="host-load-msg" class="sub">&#8212;</div>
+        <ul id="host-errors" class="host-errors"></ul>
+      </section>
+
+      <section class="panel">
+        <h2 class="section-title"><i class="fa-solid fa-layer-group"></i> Wave</h2>
+        <div class="host-wave">
+          <label><input type="checkbox" id="host-enabled" /> Feed picklists</label>
+          <label>Wave size <input type="number" id="host-wave-size" min="1" max="100" /></label>
+          <label>Refill at <input type="number" id="host-refill" min="0" /></label>
+          <label>Timeout <input type="number" id="host-timeout" min="1" /> <span class="sub">virtual min</span></label>
+          <label><input type="checkbox" id="host-loop" /> Loop backlog</label>
+        </div>
+        <div class="host-tiles">
+          <div class="host-tile"><span class="sub">State</span> <span id="host-state" class="pill">Idle</span></div>
+          <div class="host-tile"><span class="sub">Backlog</span> <strong id="host-backlog">0</strong></div>
+          <div class="host-tile"><span class="sub">In flight</span> <strong id="host-inflight">0</strong></div>
+          <div class="host-tile"><span class="sub">Completed</span> <strong id="host-completed">0</strong></div>
+          <div class="host-tile"><span class="sub">Timed out</span> <strong id="host-timedout">0</strong></div>
+          <div class="host-tile"><span class="sub">Submit failed</span> <strong id="host-failed">0</strong></div>
+        </div>
+        <p class="sub" id="host-error" hidden></p>
+        <div class="tablewrap host-inflight">
+          <table>
+            <thead>
+              <tr><th>Picklist</th><th class="num">Lines</th><th>Released at (sim)</th><th class="num">Age (virtual s)</th></tr>
+            </thead>
+            <tbody id="host-inflight-body">
+              <tr><td colspan="4" class="empty">Nothing in flight.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
     <!-- ===== Config view (eManager connection + export config) ===== -->
     <section class="view hidden" data-view="config" id="config">
       <section class="panel">
@@ -209,6 +266,23 @@
         </div>
       </section>
       <div id="shifts-list"></div>
+    </section>
+
+    <!-- ===== History view (spec 0022): the product change log, byte-identical in both hosts ===== -->
+    <section class="view hidden" data-view="history" id="history">
+      <section class="panel">
+        <h2 class="section-title"><i class="fa-solid fa-clock-rotate-left"></i> What’s new</h2>
+        <p class="sub" style="margin:0 0 12px">
+          <span class="pill" id="hist-source">—</span>
+          <span id="hist-note"></span>
+        </p>
+        <!-- A failed lookup is SHOWN. Rendering nothing would read as "no changes", which is the one
+             thing this view must never imply when it does not actually know. -->
+        <p class="hist-error" id="hist-error" hidden></p>
+        <p class="hist-problems" id="hist-problems" hidden></p>
+        <div id="hist-groups"></div>
+        <p class="sub" id="hist-empty" hidden>No entries recorded yet.</p>
+      </section>
     </section>
 
     <!-- ===== Trace view ===== -->
