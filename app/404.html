@@ -34,35 +34,87 @@
     <div style="opacity:.75"><i class="fa-solid fa-spinner fa-spin"></i> Loading in-browser simulation…</div>
   </div>
 
-  <!-- Signature floating dark rail. -->
-  <aside class="rail">
-    <a class="rail-logo" title="eManager Sim"><i class="fa-solid fa-warehouse"></i></a>
-    <nav class="rail-nav">
-      <a class="rail-icon is-active" data-view="dashboard" href="#dashboard" title="Dashboard"><i class="fa-solid fa-gauge-high"></i></a>
-      <a class="rail-icon" data-view="orders" href="#orders" title="Actual orders"><i class="fa-solid fa-clipboard-list"></i></a>
-      <a class="rail-icon" data-view="shift" href="#shift" title="Shift plan"><i class="fa-solid fa-calendar-days"></i></a>
-      <a class="rail-icon" data-view="host" href="#host" title="Host simulator"><i class="fa-solid fa-truck-ramp-box"></i></a>
-      <a class="rail-icon" data-view="trace" href="#trace" title="Trace"><i class="fa-solid fa-list-ul"></i></a>
-      <a class="rail-icon" data-view="config" href="#config" title="Config"><i class="fa-solid fa-sliders"></i></a>
-      <!-- MIRRORING NOTE (spec 0015, open question 1): the server host has a
-           `data-view="putaway"` rail icon and a whole "Store items (direct putaway)" view here. It is
-           INTENTIONALLY ABSENT from this in-browser build and must stay absent. That feature exists to
-           write stock into a REAL customer eManager over POST api/directputaway; this Pages demo is
-           mock-only by construction and nothing downstream consumes the stored stock (direct putaway
-           raises no export event and the mock's pick generation does not read stock), so the flow would
-           end at a counter. Do not "fix" this divergence in a mirroring pass; wasm.e2e.mjs asserts the
-           putaway view is NOT here. NOTE: js/format.js IS mirrored byte-for-byte (spec 0012 §5), so its
-           putawaySummary/batchCounters helpers live here too, simply unused. -->
-      <a class="rail-icon" data-view="history" href="#history" title="What’s new"><i class="fa-solid fa-clock-rotate-left"></i></a>
-      <!-- MIRRORING NOTE (spec 0014, open question 10): the server host has an
-           `data-view="update"` rail icon and view here. It is INTENTIONALLY ABSENT from this
-           in-browser build and must stay absent — a browser tab cannot write to disk or restart a
-           process, and this Pages demo is always-latest by construction (wasm-pages.yml replaces the
-           whole app/ folder on every main push). Do not "fix" this divergence in a mirroring pass.
-           The version line below IS mirrored. -->
-    </nav>
-    <div class="rail-avatar" title="Element Logic">EL</div>
-  </aside>
+  <!-- Signature floating dark rail — MUSE realignment (spec 0038): each icon is a CATEGORY that
+       opens an overlay panel of page links, not a page itself. Reveal is pure-CSS off a hidden radio
+       per section (like elws web-muse sidebar.tsx); js/app.js's wireRailMenu owns the click / hover-
+       swap (magic triangle) / auto-close interaction and controls which radio is checked. -->
+  <div class="rail-shell">
+    <!-- Section radios: JS-controlled (checked mirrors the open panel); none = closed. -->
+    <input type="radio" name="rail-sec" id="rail-sec-none" class="rail-sec-radio" checked />
+    <input type="radio" name="rail-sec" id="rail-sec-monitor" class="rail-sec-radio" />
+    <input type="radio" name="rail-sec" id="rail-sec-simulate" class="rail-sec-radio" />
+    <input type="radio" name="rail-sec" id="rail-sec-configure" class="rail-sec-radio" />
+    <input type="radio" name="rail-sec" id="rail-sec-system" class="rail-sec-radio" />
+
+    <aside class="rail">
+      <a class="rail-logo" title="eManager Sim"><i class="fa-solid fa-warehouse"></i></a>
+      <nav class="rail-nav" aria-label="Sections">
+        <button type="button" class="rail-icon" data-section="monitor" title="Monitor" aria-label="Monitor"><i class="fa-solid fa-gauge-high"></i></button>
+        <button type="button" class="rail-icon" data-section="simulate" title="Simulate" aria-label="Simulate"><i class="fa-solid fa-truck-ramp-box"></i></button>
+        <button type="button" class="rail-icon" data-section="configure" title="Configure" aria-label="Configure"><i class="fa-solid fa-sliders"></i></button>
+        <button type="button" class="rail-icon" data-section="system" title="System" aria-label="System"><i class="fa-solid fa-clock-rotate-left"></i></button>
+      </nav>
+      <button type="button" class="rail-icon" id="rail-optimize" title="Optimize database" aria-label="Optimize database"><i class="fa-solid fa-recycle"></i></button>
+      <div class="rail-avatar" title="Element Logic">EL</div>
+    </aside>
+
+    <!-- One overlay panel per category; its links navigate (js/app.js setView) then close the panel. -->
+    <aside class="rail-panel" data-section="monitor" aria-label="Monitor">
+      <header class="rail-panel-head">
+        <span class="rail-panel-title">Monitor</span>
+        <label for="rail-sec-none" class="rail-panel-close" title="Close" aria-label="Close panel">×</label>
+      </header>
+      <ul class="rail-panel-list">
+        <li><a class="rail-subnav" data-view="dashboard" href="#dashboard">Dashboard</a></li>
+        <li><a class="rail-subnav" data-view="orders" href="#orders">Actual orders</a></li>
+        <li><a class="rail-subnav" data-view="trace" href="#trace">Trace</a></li>
+      </ul>
+    </aside>
+
+    <!-- MIRRORING NOTE (spec 0015 / spec 0038): the server host's Simulate panel also lists a
+         `data-view="putaway"` "Store items (direct putaway)" link over a whole putaway view. It is
+         INTENTIONALLY ABSENT from this in-browser build and must stay absent — that feature writes
+         stock into a REAL customer eManager over POST api/directputaway; this Pages demo is mock-only
+         by construction and nothing downstream consumes the stored stock, so the flow would end at a
+         counter. Do not "fix" this divergence in a mirroring pass; wasm.e2e.mjs asserts the putaway
+         view is NOT here. js/format.js IS mirrored byte-for-byte (spec 0012 §5), so its
+         putawaySummary/batchCounters helpers live here too, simply unused. -->
+    <aside class="rail-panel" data-section="simulate" aria-label="Simulate">
+      <header class="rail-panel-head">
+        <span class="rail-panel-title">Simulate</span>
+        <label for="rail-sec-none" class="rail-panel-close" title="Close" aria-label="Close panel">×</label>
+      </header>
+      <ul class="rail-panel-list">
+        <li><a class="rail-subnav" data-view="shift" href="#shift">Shift plan</a></li>
+        <li><a class="rail-subnav" data-view="host" href="#host">Host simulator</a></li>
+      </ul>
+    </aside>
+
+    <aside class="rail-panel" data-section="configure" aria-label="Configure">
+      <header class="rail-panel-head">
+        <span class="rail-panel-title">Configure</span>
+        <label for="rail-sec-none" class="rail-panel-close" title="Close" aria-label="Close panel">×</label>
+      </header>
+      <ul class="rail-panel-list">
+        <li><a class="rail-subnav" data-view="config" href="#config">Config</a></li>
+      </ul>
+    </aside>
+
+    <!-- MIRRORING NOTE (spec 0014 / spec 0038): the server host's System panel also lists a
+         `data-view="update"` "Update" link over an update view. It is INTENTIONALLY ABSENT from this
+         in-browser build and must stay absent — a browser tab cannot write to disk or restart a
+         process, and this Pages demo is always-latest by construction (wasm-pages.yml replaces the
+         whole app/ folder on every main push). The version line and "What’s new" ARE mirrored. -->
+    <aside class="rail-panel" data-section="system" aria-label="System">
+      <header class="rail-panel-head">
+        <span class="rail-panel-title">System</span>
+        <label for="rail-sec-none" class="rail-panel-close" title="Close" aria-label="Close panel">×</label>
+      </header>
+      <ul class="rail-panel-list">
+        <li><a class="rail-subnav" data-view="history" href="#history">What’s new</a></li>
+      </ul>
+    </aside>
+  </div>
 
   <main class="app-main">
     <header class="page-header">
@@ -158,12 +210,49 @@
         <p class="sub" style="margin:0 0 12px">Load a CSV of picklist items, release them to the eManager in waves, and refill the wave as the eManager reports picklists completed.</p>
         <div class="host-load">
           <input type="file" id="host-csv" accept=".csv,text/csv" />
-          <button id="btn-host-load"><i class="fa-solid fa-file-import"></i> Load CSV</button>
+          <button id="btn-host-upload"><i class="fa-solid fa-cloud-arrow-up"></i> Upload / preview</button>
           <button class="ghost" id="btn-host-reset"><i class="fa-solid fa-rotate-left"></i> Reset run</button>
+          <span id="host-upload-msg" class="pill"></span>
         </div>
         <textarea id="host-csv-paste" rows="4" placeholder="&#8230;or paste CSV here (PicklistId;ProductId;Quantity)"></textarea>
         <div id="host-load-msg" class="sub">&#8212;</div>
         <ul id="host-errors" class="host-errors"></ul>
+      </section>
+
+      <!-- Column mapping — mirrors Direct Putaway: the file says what it says; you say what it means.
+           Auto-detected guesses are marked `auto` so a wrong guess is correctable rather than invisible. -->
+      <section class="panel" id="host-mapping" hidden>
+        <h2 class="section-title"><i class="fa-solid fa-table-columns"></i> Column mapping</h2>
+        <div class="tablewrap host-rows">
+          <table>
+            <thead>
+              <tr><th>Source</th><th>First value</th><th>Maps to</th><th>Origin</th></tr>
+            </thead>
+            <tbody id="host-mapping-body"></tbody>
+          </table>
+        </div>
+        <div class="controls" style="margin-top:var(--space-lg)">
+          <button id="btn-host-remap"><i class="fa-solid fa-rotate"></i> Re-apply mapping</button>
+        </div>
+      </section>
+
+      <!-- Preview — nothing is loaded to the backlog until Load to backlog is pressed. -->
+      <section class="panel" id="host-preview" hidden>
+        <h2 class="section-title"><i class="fa-solid fa-list-check"></i> Preview</h2>
+        <div class="tablewrap host-rows">
+          <table>
+            <thead>
+              <tr><th>Picklist</th><th>Order</th><th>Product</th><th class="num">Qty</th><th class="num">Line</th><th>Batch</th><th class="num">Priority</th></tr>
+            </thead>
+            <tbody id="host-rows-body">
+              <tr><td colspan="7" class="empty">Nothing to preview.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="sub" id="host-rows-more" style="margin:8px 0 0" hidden></p>
+        <div class="controls" style="margin-top:var(--space-lg)">
+          <button id="btn-host-load" disabled><i class="fa-solid fa-file-import"></i> Load to backlog</button>
+        </div>
       </section>
 
       <section class="panel">
@@ -288,6 +377,7 @@
     <!-- ===== Trace view ===== -->
     <section class="view hidden panel" data-view="trace" id="trace">
       <h2 class="section-title"><i class="fa-solid fa-list-ul"></i> Trace</h2>
+      <p class="sub" style="margin:0 0 12px">The <strong>When</strong> column shows <strong>simulation (virtual) time</strong> &mdash; the same virtual clock as the Sim time display, which starts at the shift begin and runs from there, not real wall-clock time.</p>
       <div class="trace-toolbar">
         <label>Port
           <select id="trace-port"><option value="">All ports</option></select>
@@ -316,6 +406,9 @@
       Element Logic eManager Simulation Handler
     </footer>
   </main>
+
+  <!-- Toast stack kept in sync with the Web shell (spec 0042); stays empty in Wasm (no notify socket). -->
+  <div id="toast-stack" aria-live="polite" aria-atomic="false"></div>
 
   <!-- Blazor WebAssembly error banner. -->
   <div id="blazor-error-ui" style="display:none">

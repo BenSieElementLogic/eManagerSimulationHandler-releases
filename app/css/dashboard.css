@@ -39,6 +39,11 @@ body { margin: 0; min-height: 100vh; }
   background: var(--color-brand); color: var(--color-on-accent);
   font-size: 18px; text-decoration: none;
 }
+/* The rail logo announces the active eManager mode (data-mode is set on <html> from GET config):
+   blue in Mock, Element-branded red in Real. Default (attribute absent) stays blue. */
+[data-mode="real"] .rail-logo { background: var(--color-brand-real); }
+/* Seed demo injects mock work, so it is meaningless against a real eManager — hide it in Real mode. */
+[data-mode="real"] #btn-seed { display: none !important; }
 .rail-nav { display: flex; flex-direction: column; gap: var(--space-xs); margin-top: var(--space-sm); }
 .rail-icon {
   width: 44px; height: 44px;
@@ -48,15 +53,118 @@ body { margin: 0; min-height: 100vh; }
   text-decoration: none; cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
+/* Rail icons are real <button>s (spec 0038) — a category control must be keyboard-operable, not a
+   role bolted onto a <label>. Shed the UA button chrome so they keep the borderless icon look. */
+button.rail-icon { background: none; border: 0; padding: 0; font: inherit; }
 .rail-icon:hover { background: var(--overlay-on-dark-weak); color: #fff; }
 .rail-icon.is-active { background: var(--overlay-on-dark); color: #fff; }
+/* The recycle "Optimize database" button carries the bottom-anchoring auto-margin so the flex free
+   space opens above it, keeping recycle + avatar hugging together at the bottom (the .rail gap gives
+   the small space between them). */
+#rail-optimize { margin-top: auto; }
 .rail-avatar {
-  margin-top: auto;
   width: var(--size-avatar); height: var(--size-avatar);
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-pill);
   background: var(--overlay-on-dark); color: #fff;
   font-size: 13px; font-weight: 700; letter-spacing: .02em;
+}
+
+/* ---- category panel (spec 0038, MUSE realignment) ----
+ * A rail icon opens an overlay panel of page links. Every panel is ALWAYS laid out (they stack on
+ * the same fixed rectangle) and gated by opacity/visibility, NOT display — so a section-to-section
+ * hover-swap is an instant swap in place, not a re-layout. The panel OVERLAYS the content (it does
+ * not push .app-main). Reveal is driven purely by the checked section radio (JS sets which). */
+.rail-sec-radio { display: none; }
+
+.rail-panel {
+  position: fixed;
+  top: var(--rail-inset);
+  bottom: var(--rail-inset);
+  /* Sits just right of the rail: inset + rail width + a small gap. */
+  left: calc(var(--rail-inset) + var(--rail-width) + var(--space-sm));
+  width: 248px;
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-panel);
+  z-index: 15; /* under the rail (20) so the rail's shadow reads on top */
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2xl) var(--space-lg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(calc(-1 * var(--space-2xl)));
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast),
+    visibility var(--transition-fast);
+}
+
+@keyframes rail-panel-in {
+  from { opacity: 0; transform: translateX(calc(-1 * var(--space-xs))); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.rail-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.rail-panel-title {
+  font-size: 15px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--color-text);
+}
+.rail-panel-close {
+  cursor: pointer; color: var(--color-muted); font-size: 18px; line-height: 1;
+  width: 28px; height: 28px; border-radius: var(--radius-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.rail-panel-close:hover { background: var(--color-row-hover); color: var(--color-text); }
+
+.rail-panel-list {
+  list-style: none; margin: var(--space-sm) 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--space-3xs);
+  overflow-y: auto;
+}
+.rail-subnav {
+  display: block; padding: var(--space-sm) var(--space-lg); border-radius: var(--radius-sm);
+  color: var(--color-text); text-decoration: none; font-size: 14px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.rail-subnav:hover { background: var(--color-row-hover); }
+.rail-subnav.is-active {
+  background: var(--color-soft-blue);
+  color: var(--color-brand-hover); font-weight: 600;
+}
+
+/* Pure-CSS reveal: a checked section radio shows its panel at its resting position, INSTANTLY (so an
+ * incoming panel is opaque the same frame a swap flips — no transparent gap). "none" is deliberately
+ * absent, so a full collapse falls through to the animated base transition (slide back + fade). */
+#rail-sec-monitor:checked   ~ .rail-panel[data-section="monitor"],
+#rail-sec-simulate:checked  ~ .rail-panel[data-section="simulate"],
+#rail-sec-configure:checked ~ .rail-panel[data-section="configure"],
+#rail-sec-system:checked    ~ .rail-panel[data-section="system"] {
+  opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(0); transition: none;
+}
+/* Gapless swap: while ANY section is checked, every panel drops its transition so the outgoing one
+ * vanishes the same frame instead of sliding out. */
+#rail-sec-monitor:checked   ~ .rail-panel,
+#rail-sec-simulate:checked  ~ .rail-panel,
+#rail-sec-configure:checked ~ .rail-panel,
+#rail-sec-system:checked    ~ .rail-panel { transition: none; }
+/* The revealed panel's CONTENTS ease in (the box is already opaque), so a swap shows the items
+ * refreshing rather than a see-through gap. Re-runs on every open and every swap. */
+#rail-sec-monitor:checked   ~ .rail-panel[data-section="monitor"] > *,
+#rail-sec-simulate:checked  ~ .rail-panel[data-section="simulate"] > *,
+#rail-sec-configure:checked ~ .rail-panel[data-section="configure"] > *,
+#rail-sec-system:checked    ~ .rail-panel[data-section="system"] > * {
+  animation: rail-panel-in var(--transition-fast) both;
+}
+
+/* Honour reduced motion: collapse hides instantly, no slide. */
+@media (prefers-reduced-motion: reduce) {
+  .rail-panel { transform: none; transition: opacity 0s, visibility 0s; }
 }
 
 /* ---- main content offset by rail + insets ---- */
@@ -130,9 +238,17 @@ body { margin: 0; min-height: 100vh; }
     border-radius: 0; padding: var(--space-sm) var(--space-lg); gap: var(--space-sm);
   }
   .rail-nav { flex-direction: row; margin-top: 0; }
-  .rail-avatar { margin-top: 0; margin-left: auto; }
+  /* In the row layout the auto horizontal push moves the recycle + avatar pair to the far end
+     together; the wide-mode bottom anchor is neutralised. */
+  #rail-optimize { margin-top: 0; margin-left: auto; }
+  .rail-avatar { margin-top: 0; margin-left: 0; }
   .app-main { margin-left: 0; padding: var(--page-pad-y) var(--space-xl); }
   .panels { grid-template-columns: 1fr; }
+  /* The rail is a top bar here, so a category panel drops below it as a full-width sheet. */
+  .rail-panel {
+    top: auto; bottom: auto; left: var(--space-sm); right: var(--space-sm); width: auto;
+    max-height: 60vh;
+  }
 }
 
 /* ---- shift plan editor ---- */
@@ -140,8 +256,15 @@ body { margin: 0; min-height: 100vh; }
 .shift-new label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--mut);
   text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 .shift-card { margin-bottom: var(--space-xl); }
-.shift-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-lg);
+.shift-head { display: flex; align-items: center; gap: var(--space-xs);
   margin-bottom: var(--space-lg); }
+/* Push the shift title so the trash + collapse buttons stay grouped at the right edge (spec 0046
+   added a second button; space-between would otherwise strand the trash button in the middle). */
+.shift-head > strong { margin-right: auto; }
+/* spec 0046: collapsing a shift card hides its whole body. `hidden` is only display:none from the UA
+   sheet, so this explicit rule guarantees the collapsed body is not rendered (and the e2e rendered-
+   height assertion holds) regardless of any future .shift-body display styling. */
+.shift-body[hidden] { display: none; }
 .assign-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-sm);
   padding: var(--space-sm) 0; border-bottom: 1px solid var(--color-border-subtle); }
 .assign-arrow { color: var(--mut); font-weight: 600; }
@@ -235,6 +358,10 @@ tr.trace-work .trace-dir-cell { color: var(--color-warning); }
 .host-inflight { margin-top: var(--space-lg); max-height: 320px; overflow: auto; }
 /* A row past 80% of its completion budget warns BEFORE it is counted as timed out. */
 .host-inflight tr.warn td { background: var(--color-soft-amber); }
+/* Host import (spec 0016 refresh): the streamed upload → column-mapping preview → confirm tables,
+   mirroring Direct Putaway's mapping/preview styling. */
+.host-rows { max-height: 420px; overflow: auto; }
+.host-map-select { min-width: 180px; }
 
 @media (max-width: 900px) { .dash-lower { grid-template-columns: 1fr; } }
 

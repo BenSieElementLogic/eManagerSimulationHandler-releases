@@ -12,6 +12,7 @@ import {
   missionActivities,
   staffingCoverage,
   virtualNow,
+  formatSimTime,
 } from './format.js';
 
 // --- in-browser bridge --------------------------------------------------------------------------
@@ -156,6 +157,13 @@ function applyStatus(status) {
   }
   simState.textContent = status.isRunning ? 'running' : 'stopped';
   simState.className = `pill ${status.isRunning ? 'ok' : ''}`.trim();
+  // Start/Stop are mutually exclusive with the run state: you cannot start a running sim, nor stop a
+  // stopped one, so grey out the button that would be a no-op.
+  const running = !!status.isRunning;
+  const startBtn = document.getElementById('btn-start');
+  const stopBtn = document.getElementById('btn-stop');
+  if (startBtn) startBtn.disabled = running;
+  if (stopBtn) stopBtn.disabled = !running;
   const auto = document.getElementById('chk-auto');
   if (auto) auto.checked = !!status.autoGenerate;
   applySpeedToControl(status);
@@ -254,7 +262,7 @@ function formatWhen(iso) {
 // --- view switching (rail nav) ------------------------------------------------------------------
 function setView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('hidden', v.dataset.view !== name));
-  document.querySelectorAll('.rail-icon[data-view]').forEach((a) => a.classList.toggle('is-active', a.dataset.view === name));
+  setActiveRail(name);
   if (name === 'dashboard') {
     renderShiftTiles();
     if (latestSnapshot) renderGrid(latestSnapshot);
@@ -284,8 +292,22 @@ function setView(name) {
     hostPoll = null;
   }
 }
+
+// Mark the active page link and its owning category icon (spec 0038). Derived from the DOM — the
+// panel link with this data-view names the section — so there is no second view→section table to
+// drift out of step with the markup (the panel that lists the page IS the active section).
+function setActiveRail(name) {
+  document.querySelectorAll('.rail-subnav.is-active').forEach((a) => a.classList.remove('is-active'));
+  document.querySelectorAll('.rail-icon.is-active').forEach((b) => b.classList.remove('is-active'));
+  const link = document.querySelector(`.rail-subnav[data-view="${name}"]`);
+  if (!link) return;
+  link.classList.add('is-active');
+  const section = link.closest('.rail-panel')?.dataset.section;
+  if (section) document.querySelector(`.rail-icon[data-section="${section}"]`)?.classList.add('is-active');
+}
+
 function wireNav() {
-  document.querySelectorAll('.rail-icon[data-view]').forEach((a) => {
+  document.querySelectorAll('a.rail-subnav[data-view]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); setView(a.dataset.view); });
   });
   document.querySelectorAll('a.view-link[data-view]').forEach((a) => {
@@ -295,9 +317,168 @@ function wireNav() {
   if (document.querySelector(`.view[data-view="${initial}"]`)) setView(initial);
 }
 
+// --- rail category menu (spec 0038) -------------------------------------------------------------
+// The interaction model, ported from elws web-muse use-rail-menu.ts + menu-aim.ts: a rail icon is a
+// CATEGORY that opens an overlay panel of page links. CLICK arms + opens (a cold hover never opens);
+// once armed, HOVER swaps panels, guarded by the "magic triangle" — a rail icon clipped while the
+// pointer aims into the open panel is held, not honoured. Auto-close on leaving the region, a
+// pointerdown outside, the × label, or clicking a page link.
+
+// AUTO_CLOSE_MS — grace before an open panel closes after the pointer leaves the rail+panel region.
+const AUTO_CLOSE_MS = 750;
+// AIM_HOLD_MS — safety-valve dwell for the magic triangle: a held swap fires only if the pointer
+// STOPS this long mid-flight over an intervening icon (a steady move re-arms it).
+const AIM_HOLD_MS = 500;
+// AIM_TOLERANCE — vertical slack (px) added above/below the panel edge so a cursor sweeping just
+// past a corner still reads as aiming for the panel.
+const AIM_TOLERANCE = 40;
+
+// isAimingAtPanel — true when a pointer travelling prev→curr is pointed into `panel`, which opens to
+// the RIGHT of the rail. Projects the movement ray forward to the panel's near (left) edge and asks
+// whether it lands within the panel's vertical span (+ tolerance). Not moving rightward, or already
+// at/past the edge, is by definition not aiming.
+function isAimingAtPanel(prev, curr, panel) {
+  const dx = curr.x - prev.x;
+  if (dx <= 0) return false;
+  if (curr.x >= panel.left) return false;
+  const t = (panel.left - curr.x) / dx;
+  const projectedY = curr.y + (curr.y - prev.y) * t;
+  return projectedY >= panel.top - AIM_TOLERANCE && projectedY <= panel.bottom + AIM_TOLERANCE;
+}
+
+function wireRailMenu() {
+  const root = document.querySelector('.rail-shell');
+  if (!root) return;
+
+  let open = null;         // active section id (null = none)
+  let armed = false;       // a cold hover never opens; a click arms
+  let closeTimer;
+  let aimTimer;
+  let hoverSection = null; // the section the pointer is over (the swap target)
+  let lastPoint = null;
+  let prevPoint = null;
+
+  const radioFor = (id) => document.getElementById('rail-sec-' + (id ?? 'none'));
+  const applyOpen = () => { const r = radioFor(open); if (r) r.checked = true; };
+  const setOpen = (id) => { open = id; applyOpen(); };
+
+  const openPanel = () => (open ? root.querySelector(`.rail-panel[data-section="${open}"]`) : null);
+
+  const recordPoint = (x, y) => {
+    // Drop a duplicate sample: mouseover+mousemove fire at the SAME point crossing onto an icon, and
+    // recording both collapses the aim vector to dx=0 — committing the held swap.
+    if (lastPoint && lastPoint.x === x && lastPoint.y === y) return;
+    prevPoint = lastPoint;
+    lastPoint = { x, y };
+  };
+
+  const aimingAtOpenPanel = () => {
+    if (!prevPoint || !lastPoint) return false;
+    const panel = openPanel();
+    if (!panel) return false;
+    const r = panel.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return false;
+    return isAimingAtPanel(prevPoint, lastPoint, { left: r.left, top: r.top, bottom: r.bottom });
+  };
+
+  const clearAim = () => { clearTimeout(aimTimer); aimTimer = undefined; };
+  const resetAim = () => { clearAim(); hoverSection = null; lastPoint = null; prevPoint = null; };
+
+  const commitSwitch = (sectionId) => {
+    clearAim();
+    if (!sectionId) return;
+    setOpen(sectionId === 'none' ? null : sectionId);
+  };
+
+  const closeMenu = () => {
+    armed = false;
+    clearTimeout(closeTimer);
+    resetAim();
+    setOpen(null);
+  };
+
+  // Hover swaps only once armed. Aiming into the open panel HOLDS the swap behind AIM_HOLD_MS
+  // (mousemove commits early); otherwise it switches at once.
+  const switchOnHover = (sectionId, e) => {
+    hoverSection = sectionId;
+    if (e) recordPoint(e.clientX, e.clientY);
+    if (!armed) return;
+    if (aimingAtOpenPanel()) {
+      clearTimeout(aimTimer);
+      aimTimer = setTimeout(() => commitSwitch(hoverSection), AIM_HOLD_MS);
+    } else {
+      commitSwitch(sectionId);
+    }
+  };
+
+  root.addEventListener('click', (e) => {
+    const target = e.target;
+    const icon = target.closest('.rail-icon[data-section]');
+    if (icon) {
+      armed = true;
+      setOpen(icon.dataset.section);
+      return;
+    }
+    if (target.closest('.rail-panel-close, a.rail-subnav')) closeMenu();
+  });
+
+  // Reaching the open panel cancels any held swap (mouseover fires as the pointer crosses in);
+  // hovering a rail icon (armed) swaps to it, guarded by the magic triangle.
+  root.addEventListener('mouseover', (e) => {
+    if (e.target.closest('.rail-panel')) { clearAim(); hoverSection = null; return; }
+    const icon = e.target.closest('.rail-icon[data-section]');
+    if (icon && icon.dataset.section !== hoverSection) switchOnHover(icon.dataset.section, e);
+  });
+
+  // Drives the held swap off motion: commit it once the pointer reaches the panel column (keep the
+  // panel) or stops aiming (honour the icon); a steady approach re-arms the dwell.
+  root.addEventListener('mousemove', (e) => {
+    recordPoint(e.clientX, e.clientY);
+    if (aimTimer === undefined) return;
+    const panel = openPanel();
+    if (panel) {
+      const r = panel.getBoundingClientRect();
+      if (!(r.width === 0 && r.height === 0) && e.clientX >= r.left) { clearAim(); return; }
+    }
+    if (aimingAtOpenPanel()) {
+      clearTimeout(aimTimer);
+      aimTimer = setTimeout(() => commitSwitch(hoverSection), AIM_HOLD_MS);
+    } else {
+      commitSwitch(hoverSection);
+    }
+  });
+
+  root.addEventListener('mouseenter', () => clearTimeout(closeTimer));
+  root.addEventListener('mouseleave', () => {
+    resetAim();
+    if (!armed) return;
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(closeMenu, AUTO_CLOSE_MS);
+  });
+
+  // A pointerdown outside the rail+panel region closes it.
+  document.addEventListener('pointerdown', (e) => {
+    if (!root.contains(e.target)) closeMenu();
+  });
+
+  // Test hook (elws exports these for its tests too): the aim geometry + timing constants, so the
+  // E2E can pin isAimingAtPanel's cases directly in the real engine.
+  window.__rail = { isAimingAtPanel, AIM_TOLERANCE, AIM_HOLD_MS, AUTO_CLOSE_MS };
+}
+
+
 // --- staffing (client-side eval; the same plan drives the server tick via /api/sim/staffing) -----
 // plan shape: { shifts: [{ name, start:"HH:mm", end:"HH:mm", assignments:[{ person, port, breaks:[{start,end}] }] }] }
 let staffingPlan = { shifts: [] };
+
+// spec 0046: which shift cards are collapsed. Client-only, per-browser view state — NEVER stored on
+// `shift`/`staffingPlan` (that would leak UI state into the persisted/POSTed plan). Keyed by a
+// composite of name|start|end so the collapsed state stays with the intended card across
+// add/remove/staff-all splices of staffingPlan.shifts. Caveat: two shifts with an identical
+// name+start+end collapse together — an accepted, low-impact collision, strictly better than a bare
+// index key that mis-attaches state after a splice.
+const collapsedShifts = new Set();
+const shiftKey = (shift) => `${shift.name}|${shift.start}|${shift.end}`;
 
 function parseHM(s) {
   const m = /^(\d{1,2}):(\d{2})/.exec(s ?? '');
@@ -331,8 +512,8 @@ function renderSimClock() {
   const el = document.getElementById('sim-clock');
   if (!el) return;
   if (!simAnchor) { el.textContent = '--:--:--'; return; }
-  const d = new Date(virtualNowMs());
-  el.textContent = `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+  // Share the one UTC formatter with the Trace "When" column so the KPI clock and the trace cannot diverge.
+  el.textContent = formatSimTime(new Date(virtualNowMs()).toISOString());
 }
 function inWindow(startHM, endHM, hm) {
   if (startHM == null || endHM == null) return false;
@@ -384,7 +565,10 @@ function renderShiftTiles() {
 function renderGrid(snapshot) {
   const grid = document.getElementById('autostore-grid');
   if (!grid) return;
-  const ports = snapshot.ports ?? [];
+  // Sort ports in ascending order by code. Uses a numeric-aware compare so purely numeric codes
+  // ("2" before "10") and prefixed codes ("P02" before "P10") both order the way a human expects.
+  const ports = [...(snapshot.ports ?? [])].sort((a, b) =>
+    String(a.portCode).localeCompare(String(b.portCode), undefined, { numeric: true, sensitivity: 'base' }));
   const cols = Math.max(ports.length, 4);
   grid.style.setProperty('--cols', cols);
   const cells = [];
@@ -451,15 +635,15 @@ function discoveredPorts() {
   return [...knownPorts].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
-// "N ports discovered from the eManager: P01, P02, P03" — the port list is NOT hand-maintained, it is
+// "N ports discovered from eManager." — the count is NOT hand-maintained, it is
 // exactly what the eManager reported (GET api/AutoStorePortInfo), and it is known before Start.
 function renderPortSummary() {
   const el = document.getElementById('shift-ports-summary');
   if (!el) return;
   const ports = discoveredPorts();
   el.textContent = ports.length
-    ? `${ports.length} port${ports.length === 1 ? '' : 's'} discovered from the eManager: ${ports.join(', ')}`
-    : 'No ports discovered from the eManager — check the Config page.';
+    ? `${ports.length} port${ports.length === 1 ? '' : 's'} discovered from eManager.`
+    : 'No ports discovered from eManager — check the Config page.';
 }
 
 function coverageView(shift) {
@@ -496,6 +680,8 @@ function bulkView(shift, i) {
 function renderShifts() {
   const list = document.getElementById('shifts-list');
   if (!list) return;
+  // Test-hook (spec 0046): expose the live draft plan so e2e can assert no collapse state leaks in.
+  window.__staffingPlan = staffingPlan;
   list.replaceChildren();
   if (!(staffingPlan.shifts ?? []).length) {
     list.append(h('p', { class: 'sub', text: 'No shifts yet — add one above, then assign a person to a port.' }));
@@ -503,27 +689,41 @@ function renderShifts() {
   }
   staffingPlan.shifts.forEach((shift, i) => {
     const panel = h('section', { class: 'panel shift-card' });
+    // spec 0046: collapse state is client-only, keyed by name|start|end (see collapsedShifts).
+    const collapsed = collapsedShifts.has(shiftKey(shift));
+    const collapseBtn = h('button', {
+      class: 'ghost',
+      title: collapsed ? 'Expand shift' : 'Collapse shift',
+      'aria-label': collapsed ? 'Expand shift' : 'Collapse shift',
+      'aria-expanded': collapsed ? 'false' : 'true',
+      onclick: () => {
+        const key = shiftKey(shift);
+        if (collapsedShifts.has(key)) collapsedShifts.delete(key); else collapsedShifts.add(key);
+        renderShifts();
+      },
+    }, h('i', { class: `fa-solid ${collapsed ? 'fa-chevron-down' : 'fa-chevron-up'}` }));
     panel.append(h('div', { class: 'shift-head' },
       h('strong', { text: `${shift.name || 'Shift'} · ${shift.start}–${shift.end}` }),
       h('button', { class: 'ghost', title: 'Remove shift', onclick: () => { staffingPlan.shifts.splice(i, 1); renderShifts(); } },
-        h('i', { class: 'fa-solid fa-trash' }))));
+        h('i', { class: 'fa-solid fa-trash' })),
+      collapseBtn));
 
-    (shift.assignments ?? []).forEach((a, j) => {
-      panel.append(h('div', { class: 'assign-row' },
-        h('span', { class: 'pill ok', text: a.person }),
-        h('span', { class: 'assign-arrow', text: `→ ${a.port}` }),
-        h('span', { class: 'assign-wt', text: a.worktimeSeconds != null ? `${a.worktimeSeconds}s` : 'default wt' }),
-        breaksView(a),
-        h('button', { class: 'ghost', title: 'Remove assignment', onclick: () => { shift.assignments.splice(j, 1); renderShifts(); } },
-          h('i', { class: 'fa-solid fa-xmark' }))));
-    });
+    // spec 0046: everything below the head lives in one .shift-body so a single toggle collapses it all.
+    const body = h('div', { class: 'shift-body' });
+    if (collapsed) body.setAttribute('hidden', '');
+
+    // Bulk staffing lives ABOVE the per-port assignment rows so it stays on-screen even when every port
+    // is staffed and the list of individual assignments grows long. It has its own container, NEVER inside
+    // .assign-add.
+    body.append(bulkView(shift, i));
 
     const person = h('input', { type: 'text', placeholder: 'Person name' });
     const used = new Set((shift.assignments ?? []).map((a) => a.port));
     const portSel = h('select', {}, h('option', { value: '', text: 'Port…' }),
       ...knownPorts.filter((p) => !used.has(p)).map((p) => h('option', { value: p, text: p })));
     const wt = h('input', { type: 'number', min: '0', step: '0.5', placeholder: 'Worktime s', class: 'wt-input' });
-    panel.append(h('div', { class: 'assign-add' }, person, portSel, wt,
+    // spec 0046: per-port form sits directly under bulk staffing and ABOVE the assignment rows.
+    body.append(h('div', { class: 'assign-add' }, person, portSel, wt,
       h('button', { onclick: () => {
         const name = person.value.trim();
         if (!name || !portSel.value) return;
@@ -533,10 +733,20 @@ function renderShifts() {
         renderShifts();
       } }, h('i', { class: 'fa-solid fa-user-plus' }), document.createTextNode(' Assign'))));
 
-    // Bulk staffing + coverage live in their own containers, NEVER inside .assign-add.
-    panel.append(bulkView(shift, i));
-    panel.append(coverageView(shift));
+    // Coverage (Staffed n / n) sits directly above the individual assignment rows.
+    body.append(coverageView(shift));
 
+    (shift.assignments ?? []).forEach((a, j) => {
+      body.append(h('div', { class: 'assign-row' },
+        h('span', { class: 'pill ok', text: a.person }),
+        h('span', { class: 'assign-arrow', text: `→ ${a.port}` }),
+        h('span', { class: 'assign-wt', text: a.worktimeSeconds != null ? `${a.worktimeSeconds}s` : 'default wt' }),
+        breaksView(a),
+        h('button', { class: 'ghost', title: 'Remove assignment', onclick: () => { shift.assignments.splice(j, 1); renderShifts(); } },
+          h('i', { class: 'fa-solid fa-xmark' }))));
+    });
+
+    panel.append(body);
     list.append(panel);
   });
 }
@@ -598,7 +808,7 @@ async function refreshTrace() {
     const tr = document.createElement('tr');
     tr.className = dirClass[r.direction] ?? 'trace-snd';
     tr.append(
-      cell(formatWhen(r.timestamp)),
+      cell(formatSimTime(r.timestamp)),
       cell(dirLabel[r.direction] ?? r.direction, 'trace-dir-cell'),
       cell(r.portCode ?? '—'),
       cell(r.transaction),
@@ -617,9 +827,17 @@ function wireTrace() {
 }
 
 // --- eManager config (Config view) --------------------------------------------------------------
+// The rail logo is mode-branded (spec: blue in Mock, Element red in Real). Reflect the active eManager
+// mode onto <html data-mode> so the CSS in dashboard.css can colour the logo; absent = mock/blue.
+function applyMode(mode) {
+  const real = String(mode ?? '').toLowerCase() === 'real';
+  document.documentElement.dataset.mode = real ? 'real' : 'mock';
+}
+
 async function loadConfig() {
   const cfg = await apiGetJson('config');
   if (!cfg) return;
+  applyMode(cfg.mode);
   const set = (id, v) => { const el = document.getElementById(id); if (el != null) el.value = v; };
   set('cfg-mode', cfg.mode ?? 'Mock');
   set('cfg-baseuri', cfg.baseUri ?? '');
@@ -885,17 +1103,36 @@ async function refreshHistory() {
   renderHistory(await historyJson());
 }
 // --- history view (spec 0022) --- SHARED BLOCK END ----------------------------------------------
-// The bridge's Control takes a string body, so the base64 CSV goes straight through — the same bytes
-// the Web host receives, decoded by the same Core reader.
-async function controlCsv(base64) {
-  return parse(await invoke('Control', 'host/picklists', base64));
+// ----- host transport trio (Wasm) ---------------------------------------------------------------
+// The browser build has no server and no temp file, so the CSV bytes are re-passed on every call: the
+// upload keeps the base64 in a module var and remap/load hand it straight back to the same Core reader.
+// Only these three functions differ from the Web host; every render/read helper below is byte-identical.
+let hostStoredCsv = null;
+
+async function hostUpload(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  hostStoredCsv = toBase64(bytes);
+  const view = parse(await invoke('Control', 'host/picklists/upload', JSON.stringify({ csv: hostStoredCsv, mapping: null })));
+  return view ? { uploadId: 'wasm', view } : null;
+}
+
+async function hostRemap(uploadId, mapping) {
+  if (hostStoredCsv == null) return null;
+  const view = parse(await invoke('Control', 'host/picklists/remap', JSON.stringify({ csv: hostStoredCsv, mapping })));
+  return view ? { uploadId, view } : null;
+}
+
+async function hostLoad(uploadId, mapping) {
+  if (hostStoredCsv == null) return null;
+  const view = parse(await invoke('Control', 'host/picklists/load', JSON.stringify({ csv: hostStoredCsv, mapping })));
+  return view ? { uploadId, view } : null;
 }
 
 // --- host/WMS simulator (spec 0016) -------------------------------------------------------------
 // The second role this program plays: the customer's WMS, feeding the eManager picklist waves read
-// from a CSV. Everything below is byte-identical between the two hosts; only controlCsv's transport
-// differs (REST body vs SimBridge argument), and both send the SAME base64 bytes so the reader's
-// BOM / UTF-8 / CP1252 detection behaves the same in the browser demo as on the server.
+// from a CSV. Everything below is byte-identical between the two hosts; only the upload/remap/load
+// transport trio differs (REST vs SimBridge), and both drive the SAME Core reader so the mapping
+// preview and BOM / UTF-8 / CP1252 detection behave the same in the browser demo as on the server.
 let hostPoll = null;
 
 function hostFieldValues() {
@@ -975,40 +1212,217 @@ function toBase64(bytes) {
   return btoa(binary);
 }
 
-async function loadHostCsv() {
-  const file = document.getElementById('host-csv')?.files?.[0];
-  const bytes = file
-    ? new Uint8Array(await file.arrayBuffer())
-    : new TextEncoder().encode(document.getElementById('host-csv-paste')?.value ?? '');
+// ----- host import: shared upload → mapping preview → confirm flow (mirrors Direct Putaway) -------
+// Everything from here down is byte-identical between the two hosts; only the transport trio above
+// differs. The stored uploadId keys the host-side (or, on Wasm, browser-side) copy of the file, so a
+// re-map or a load never re-sends the bytes. The ignore target is the literal string "Ignore".
+let hostUploadId = null;
 
-  const result = await controlCsv(toBase64(bytes));
-  renderHostLoad(result);
+// A File built from the chosen file, or from the paste textarea when no file is selected — one code
+// path feeds the same transport trio either way.
+function hostSelectedFile() {
+  const file = document.getElementById('host-csv')?.files?.[0];
+  if (file) return file;
+  const text = document.getElementById('host-csv-paste')?.value ?? '';
+  if (!text) return null;
+  return new File([new TextEncoder().encode(text)], 'pasted.csv', { type: 'text/csv' });
+}
+
+// A status badge beside the Upload button (mirrors Direct Putaway's dpaSetMessage): the user sees
+// "uploading…" the instant they click — not a frozen screen until the whole file has streamed — then
+// "uploaded" / "not accepted" / a failure.
+function hostSetStatus(text, cls) {
+  const el = document.getElementById('host-upload-msg');
+  if (!el) return;
+  el.className = `pill ${cls ?? ''}`.trim();
+  if (cls === 'loading') {
+    el.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i>${text}`;
+  } else {
+    el.textContent = text;
+  }
+}
+
+async function previewHostUpload() {
+  const file = hostSelectedFile();
+  if (!file) { hostSetStatus('choose a CSV file first', 'bad'); renderHostPreview(null); return; }
+  hostSetStatus('uploading…', 'loading');
+  const result = await hostUpload(file);
+  if (!result) { hostSetStatus('upload failed', 'bad'); renderHostPreview(null); return; }
+  hostUploadId = result.uploadId;
+  hostSetStatus(result.view.accepted ? 'uploaded' : 'not accepted', result.view.accepted ? 'ok' : 'bad');
+  renderHostPreview(result.view);
+}
+
+async function remapHostUpload() {
+  if (!hostUploadId) return;
+  // Re-parses the whole CSV (slow on large uploads), so disable the run buttons and show the reused spinner
+  // while it is in flight — mirrors runExportAction. renderHostPreview has the final word on
+  // btn-host-load / btn-host-import via view.accepted, so finally only blanket re-enables the others.
+  // (The Wasm host has no btn-host-import; the ?-style guards below tolerate its absence.)
+  const remap = document.getElementById('btn-host-remap');
+  const load = document.getElementById('btn-host-load');
+  const importAll = document.getElementById('btn-host-import');
+  const upload = document.getElementById('btn-host-upload');
+  const reset = document.getElementById('btn-host-reset');
+  if (remap) remap.disabled = true;
+  if (load) load.disabled = true;
+  if (importAll) importAll.disabled = true;
+  if (upload) upload.disabled = true;
+  if (reset) reset.disabled = true;
+  hostSetStatus('applying…', 'loading');
+  try {
+    const result = await hostRemap(hostUploadId, readHostMapping());
+    if (!result) {
+      hostSetStatus('re-apply failed', 'bad');
+      // No preview to re-gate load/import, so re-enable them here (do not force them enabled on success).
+      if (load) load.disabled = false;
+      if (importAll) importAll.disabled = false;
+      return;
+    }
+    hostSetStatus(result.view.accepted ? 'remapped' : 'not accepted', result.view.accepted ? 'ok' : 'bad');
+    renderHostPreview(result.view);
+  } finally {
+    if (remap) remap.disabled = false;
+    if (upload) upload.disabled = false;
+    if (reset) reset.disabled = false;
+  }
+}
+
+async function loadHostUpload() {
+  if (!hostUploadId) return;
+  hostSetStatus('loading…', 'loading');
+  const result = await hostLoad(hostUploadId, readHostMapping());
+  if (!result) { hostSetStatus('load failed', 'bad'); return; }
+  hostSetStatus(result.view.accepted ? 'loaded' : 'not accepted', result.view.accepted ? 'ok' : 'bad');
+  renderHostPreview(result.view);
   await refreshHost();
 }
 
-function renderHostLoad(result) {
+// The mapping table: one row per SOURCE column (file order), including ignored/unrecognised ones —
+// a column silently dropped is exactly how a file gets misread. `auto` marks a guess, `you` an
+// explicit choice. Mirrors renderPutawayMapping.
+function renderHostMapping(view) {
+  const columns = Array.isArray(view?.columns) ? view.columns : [];
+  const panel = document.getElementById('host-mapping');
+  if (panel) panel.hidden = columns.length === 0;
+
+  const body = document.getElementById('host-mapping-body');
+  if (!body) return;
+  body.replaceChildren(...columns.map((column) => {
+    const tr = document.createElement('tr');
+    const select = document.createElement('select');
+    select.className = 'host-map-select';
+    select.dataset.index = String(column.index);
+    const ignore = document.createElement('option');
+    ignore.value = 'Ignore';
+    ignore.textContent = '— ignore —';
+    select.append(ignore);
+    for (const target of view.targets ?? []) {
+      const option = document.createElement('option');
+      option.value = target.name;
+      option.textContent = target.isRequired ? `${target.name} (required)` : target.name;
+      if (target.description) option.title = target.description;
+      select.append(option);
+    }
+    // A target the catalogue does not list (already-bound but unknown) stays selectable so re-applying
+    // a mapping cannot silently drop it.
+    if (column.target && column.target !== 'Ignore'
+      && ![...select.options].some((o) => o.value === column.target)) {
+      const option = document.createElement('option');
+      option.value = column.target;
+      option.textContent = column.target;
+      select.append(option);
+    }
+    select.value = column.target || 'Ignore';
+
+    const origin = document.createElement('span');
+    const label = column.origin === 'user' ? 'you' : column.origin === 'auto' ? 'auto' : '—';
+    origin.className = `pill ${column.origin === 'user' ? 'ok' : column.origin === 'auto' ? 'loading' : ''}`.trim();
+    origin.textContent = label;
+
+    const target = document.createElement('td');
+    target.append(select);
+    const originCell = document.createElement('td');
+    originCell.append(origin);
+    tr.append(cell(column.source || '(unnamed)'), cell(column.firstValue ?? ''), target, originCell);
+    return tr;
+  }));
+}
+
+/** Collect the current dropdown state as an explicit, index-based mapping. Mirrors readPutawayMapping. */
+function readHostMapping() {
+  return [...document.querySelectorAll('#host-mapping-body .host-map-select')]
+    .map((select) => ({ index: Number(select.dataset.index), target: select.value }));
+}
+
+// Render the upload/preview view: counts + delimiter/encoding/ignored note in #host-load-msg, errors
+// in #host-errors, the mapping table, and a bounded sample grid. "Load to backlog" is enabled only
+// when the parse was accepted.
+function renderHostPreview(view) {
   const msg = document.getElementById('host-load-msg');
   const list = document.getElementById('host-errors');
-  if (!result) {
-    if (msg) msg.textContent = 'Not loaded — the request failed.';
+  const preview = document.getElementById('host-preview');
+  const load = document.getElementById('btn-host-load');
+
+  if (!view) {
+    if (msg) msg.textContent = 'Upload failed — the request could not be completed.';
     if (list) list.replaceChildren();
+    if (preview) preview.hidden = true;
+    document.getElementById('host-mapping')?.setAttribute('hidden', '');
+    if (load) load.disabled = true;
     return;
   }
-  const errors = result.errors ?? [];
+
+  const errors = view.errors ?? [];
   if (msg) {
-    // Columns the eManager has no field for are NAMED, not silently dropped: the customer's file carries
-    // task_type/bins/date_sim/day_sim, and a user has to be able to see they were read and ignored.
-    const ignored = result.ignoredColumns ?? [];
+    const ignored = view.ignoredColumns ?? [];
     const ignoredNote = ignored.length ? ` — read but not sent: ${ignored.join(', ')}` : '';
-    msg.textContent = result.accepted
-      ? `Loaded ${result.picklistCount} picklists / ${result.lineCount} lines (delimiter "${result.delimiter}", ${result.encoding})${ignoredNote}`
-      : `Not loaded — ${errors.length} problem${errors.length === 1 ? '' : 's'}:`;
+    msg.textContent = view.accepted
+      ? `Ready: ${view.picklistCount} picklists / ${view.lineCount} lines (delimiter "${view.delimiter}", ${view.encoding})${ignoredNote}`
+      : `Not accepted — ${errors.length} problem${errors.length === 1 ? '' : 's'}:`;
   }
   if (list) {
     list.replaceChildren(...errors.map((e) => h('li', {
       text: e.lineNumber > 0 ? `line ${e.lineNumber}: ${e.reason}` : e.reason,
     })));
   }
+
+  renderHostMapping(view);
+
+  if (preview) preview.hidden = false;
+  const body = document.getElementById('host-rows-body');
+  if (body) {
+    const rows = view.sample ?? [];
+    body.replaceChildren(...(rows.length
+      ? rows.map((r) => {
+          const tr = document.createElement('tr');
+          tr.append(
+            cell(r.picklistId ?? ''),
+            cell(r.orderId ?? '—'),
+            cell(r.productId ?? ''),
+            cell(formatQuantity(r.quantity), 'num'),
+            cell(String(r.lineId ?? ''), 'num'),
+            cell(r.batch ?? '—'),
+            cell(r.priority == null ? '—' : String(r.priority), 'num'),
+          );
+          return tr;
+        })
+      : [emptyRow(7, 'No rows.')]));
+
+    // The preview is a bounded sample (no table virtualisation), so say so and reassure the user that
+    // every line is loaded on confirm — mirrors Direct Putaway's "showing first N of total" note.
+    const more = document.getElementById('host-rows-more');
+    if (more) {
+      const total = view.lineCount ?? rows.length;
+      const truncated = total > rows.length;
+      more.hidden = !truncated;
+      more.textContent = truncated
+        ? `Showing the first ${rows.length} of ${total} lines — all ${total} are loaded when you press “Load to backlog”.`
+        : '';
+    }
+  }
+
+  if (load) load.disabled = !view.accepted;
 }
 
 function renderHost(status) {
@@ -1074,26 +1488,42 @@ function refreshHost() {
 }
 
 function wireHost() {
-  document.getElementById('btn-host-load')?.addEventListener('click', loadHostCsv);
+  document.getElementById('btn-host-upload')?.addEventListener('click', previewHostUpload);
+  document.getElementById('btn-host-remap')?.addEventListener('click', remapHostUpload);
+  document.getElementById('btn-host-load')?.addEventListener('click', loadHostUpload);
+  // Choosing a new file abandons the previous upload: its uploadId and any mapping no longer apply.
+  document.getElementById('host-csv')?.addEventListener('change', () => { hostUploadId = null; });
   document.getElementById('btn-host-reset')?.addEventListener('click', () => applyHostStatus(control('host/reset')));
   for (const id of ['host-enabled', 'host-wave-size', 'host-refill', 'host-timeout', 'host-loop']) {
     document.getElementById(id)?.addEventListener('change', postHostConfig);
   }
 }
 
+// --- Simulation Database Optimization rail icon (spec 0042) --------------------------------------
+// Wasm has no server DB / putaway files / notify socket, so the recycle icon is a deliberate no-op and
+// no ws/notify socket is opened. The toast stack stays empty; nothing errors.
+function wireOptimizeNoop() {
+  window.__optimize = () => { /* no-op in the in-browser demo (no server) */ };
+  const btn = document.getElementById('rail-optimize');
+  if (btn) btn.addEventListener('click', window.__optimize);
+}
+
 // --- boot ---------------------------------------------------------------------------------------
 async function init() {
   wireControls();
   wireNav();
+  wireRailMenu();
   wireShiftEditor();
   wireTrace();
   wireHost();
   wireConfig();
+  wireOptimizeNoop();
 
   // Start the poll/tick loops FIRST: a failure while restoring the initial state must never leave the
   // dashboard rendered-but-frozen because the intervals were never created.
   connect();
   await renderVersion();
+  applyMode((await apiGetJson('config'))?.mode); // brand the rail logo before any view is opened
   await loadStaffingFromServer();
   const status = await getStatus();
   if (status) {
@@ -1111,6 +1541,5 @@ async function init() {
 }
 
 init().catch((err) => {
-  console.error('dashboard boot failed', err);
-  setConn('offline', 'boot failed');
+  console.error('dashboard boot failed', err);  setConn('offline', 'boot failed');
 });

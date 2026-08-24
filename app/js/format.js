@@ -79,6 +79,28 @@ export function formatQuantity(value) {
   return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(3)));
 }
 
+/** Zero-pad a number to two digits (e.g. 5 → "05"). */
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+/**
+ * Format an ISO instant as the simulation (virtual) clock's UTC time-of-day "HH:MM:SS" (spec 0048).
+ * The virtual clock is anchored at the shift start and stamped in UTC, so this mirrors renderSimClock's
+ * getUTCHours/Minutes/Seconds rather than the browser's local wall-clock. Empty/null/undefined or an
+ * unparseable instant returns the em-dash "—" (matching formatWhen's fallback for an empty trace).
+ */
+export function formatSimTime(iso) {
+  if (iso === null || iso === undefined || iso === '') {
+    return '—';
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return '—';
+  }
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+}
+
 /**
  * Map a stats snapshot's real per-mission activity log to display rows for the missions panel.
  * The snapshot carries `recentMissions` (newest first) with genuine kind/quantity/state/timestamp
@@ -139,9 +161,11 @@ function countLabel(n, noun) {
 export function putawaySummary(result) {
   const r = result ?? {};
   const len = (v) => (Array.isArray(v) ? v.length : 0);
+  // Spec 0028: the upload preview carries the TRUE total plus a bounded sample, not the whole row list.
+  const rowCount = Number.isFinite(Number(r.total)) && r.total != null ? Math.trunc(Number(r.total)) : len(r.rows);
   const delimiter = r.delimiter === '\t' ? 'tab' : r.delimiter ? `'${r.delimiter}'` : 'unknown';
   return [
-    countLabel(len(r.rows), 'row'),
+    countLabel(rowCount, 'row'),
     countLabel(len(r.errors), 'error'),
     countLabel(len(r.warnings), 'warning'),
     `delimiter ${delimiter}`,
