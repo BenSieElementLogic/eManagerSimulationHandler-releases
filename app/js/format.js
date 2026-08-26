@@ -57,7 +57,7 @@ export function portStatusPill(isOpen) {
 
 /**
  * The dashboard AutoStore grid cell state for a port snapshot (spec 0038 Amd C). Precedence:
- * error → closed → login → bin → binwait → open. The mock-only Wasm demo never sets `activity`, so only
+ * error → closed → login → bin → binwait → awaiting → open. The mock-only Wasm demo never sets `activity`, so only
  * closed/bin/open apply; the extra cases are mirrored for parity with the Web host.
  */
 export function portCellState(p) {
@@ -68,6 +68,7 @@ export function portCellState(p) {
   if (port.activity === 'loggingIn') return 'login';
   if (busy) return 'bin';
   if (port.activity === 'taskReady') return 'binwait';
+  if (port.activity === 'awaitingWork') return 'awaiting';
   return 'open';
 }
 
@@ -78,6 +79,7 @@ export function portCellLabel(state) {
     case 'login': return 'logging in';
     case 'bin': return 'bin in port';
     case 'binwait': return 'waiting for bin delivery';
+    case 'awaiting': return 'open, awaiting work';
     case 'error': return 'needs attention';
     default: return 'open';
   }

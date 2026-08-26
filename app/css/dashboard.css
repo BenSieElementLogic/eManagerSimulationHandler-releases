@@ -294,6 +294,7 @@ tr.trace-work .trace-dir-cell { color: var(--color-warning); }
 .cell-swatch.bin { background: var(--color-warning); }
 .cell-swatch.login { background: var(--color-login); }
 .cell-swatch.binwait { background: var(--color-binwait); }
+.cell-swatch.awaiting { background: var(--color-awaiting); }
 .autostore-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); gap: 6px; }
 .gcell { aspect-ratio: 1 / 1; border-radius: var(--radius-sm); }
 .bin-cell { background: var(--color-widget-surface); border: 1px solid var(--color-border); }
@@ -304,6 +305,7 @@ tr.trace-work .trace-dir-cell { color: var(--color-warning); }
 .port-cell.bin { background: var(--color-warning); color: var(--color-text); }
 .port-cell.login { background: var(--color-login); }
 .port-cell.binwait { background: var(--color-binwait); }
+.port-cell.awaiting { background: var(--color-awaiting); }
 
 /* ---- version line (spec 0014 strand A) ----
    Mirrored from the server host. The update-panel rules that sit beside this one over there are

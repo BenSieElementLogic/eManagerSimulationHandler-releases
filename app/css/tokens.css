@@ -26,6 +26,7 @@
   --color-warning:        #d97a23;
   --color-login:          #2f6fed;   /* port grid: operator logging in (spec 0038 Amd C) */
   --color-binwait:        #7c5cff;   /* port grid: task ready, waiting for bin delivery (spec 0038 Amd C) */
+  --color-awaiting:       #17a2b8;   /* port grid: open, logged in, idle — awaiting work (fix/port-grid-open-awaiting-work) */
 
   /* soft tint washes */
   --color-soft-blue:  #e9f1fd;

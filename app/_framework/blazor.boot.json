@@ -1,10 +1,10 @@
 {
   "mainAssemblyName": "EManagerSimulationHandler.Wasm",
   "resources": {
-    "hash": "sha256-becVX5ER/jJ+/pJw/lltEJOqUAVD3M7epPlWiERqtJU=",
+    "hash": "sha256-iH2rG1FndznK06vIMsQf+iAAy+gYC+LCpUwvwc20sj0=",
     "fingerprinting": {
-      "EManagerSimulationHandler.Core.xvgmsao7gh.wasm": "EManagerSimulationHandler.Core.wasm",
-      "EManagerSimulationHandler.Wasm.wixlhcpdo3.wasm": "EManagerSimulationHandler.Wasm.wasm",
+      "EManagerSimulationHandler.Core.5ivtvnrs2z.wasm": "EManagerSimulationHandler.Core.wasm",
+      "EManagerSimulationHandler.Wasm.fsmxh67ftm.wasm": "EManagerSimulationHandler.Wasm.wasm",
       "Microsoft.AspNetCore.Components.Web.lm4rut10g5.wasm": "Microsoft.AspNetCore.Components.Web.wasm",
       "Microsoft.AspNetCore.Components.WebAssembly.j1xbk2t3ph.wasm": "Microsoft.AspNetCore.Components.WebAssembly.wasm",
       "Microsoft.AspNetCore.Components.zcuuhv153y.wasm": "Microsoft.AspNetCore.Components.wasm",
@@ -79,8 +79,8 @@
       "System.Runtime.InteropServices.JavaScript.hhwupg45hv.wasm": "sha256-C4cuQuTP78aiOgkhY79qq+DcgktJVXD0Rpzlcqd4tsM="
     },
     "assembly": {
-      "EManagerSimulationHandler.Core.xvgmsao7gh.wasm": "sha256-A722JFZFB/e4gzgaxplXpzpY+6jYE/5DiGir1chdQ6E=",
-      "EManagerSimulationHandler.Wasm.wixlhcpdo3.wasm": "sha256-+M0YMIgc0skJO2o/vP73/tus61tAyW86CFXZ4Olt68Q=",
+      "EManagerSimulationHandler.Core.5ivtvnrs2z.wasm": "sha256-Q9Bnowv4xUnAgr5rzlRrM/tnrVBLkgxltKkA/VFDXh4=",
+      "EManagerSimulationHandler.Wasm.fsmxh67ftm.wasm": "sha256-YVVg4sb2/faBo09E8vfOsxGnb2ddJ18BsUd3FWshV2o=",
       "Microsoft.AspNetCore.Components.Web.lm4rut10g5.wasm": "sha256-LdJbIQs6mR8Bf/QOSvpZw+f43bUrzWk/gnO9fORl1vE=",
       "Microsoft.AspNetCore.Components.WebAssembly.j1xbk2t3ph.wasm": "sha256-+Rc1Rm99PgXxk9GUwpNbQ7gGhxMAtR4GmjNTMlLhEUI=",
       "Microsoft.AspNetCore.Components.zcuuhv153y.wasm": "sha256-zS0bUCTg4rLTaL6z72HweP8G88d/sAXV+nQi5T9KojY=",
