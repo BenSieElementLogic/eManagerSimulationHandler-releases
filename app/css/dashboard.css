@@ -59,16 +59,8 @@ button.rail-icon { background: none; border: 0; padding: 0; font: inherit; }
 .rail-icon:hover { background: var(--overlay-on-dark-weak); color: #fff; }
 .rail-icon.is-active { background: var(--overlay-on-dark); color: #fff; }
 /* The recycle "Optimize database" button carries the bottom-anchoring auto-margin so the flex free
-   space opens above it, keeping recycle + avatar hugging together at the bottom (the .rail gap gives
-   the small space between them). */
+   space opens above it, keeping recycle hugging the bottom (the .rail gap gives the spacing). */
 #rail-optimize { margin-top: auto; }
-.rail-avatar {
-  width: var(--size-avatar); height: var(--size-avatar);
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-pill);
-  background: var(--overlay-on-dark); color: #fff;
-  font-size: 13px; font-weight: 700; letter-spacing: .02em;
-}
 
 /* ---- category panel (spec 0038, MUSE realignment) ----
  * A rail icon opens an overlay panel of page links. Every panel is ALWAYS laid out (they stack on
@@ -238,10 +230,8 @@ button.rail-icon { background: none; border: 0; padding: 0; font: inherit; }
     border-radius: 0; padding: var(--space-sm) var(--space-lg); gap: var(--space-sm);
   }
   .rail-nav { flex-direction: row; margin-top: 0; }
-  /* In the row layout the auto horizontal push moves the recycle + avatar pair to the far end
-     together; the wide-mode bottom anchor is neutralised. */
+  /* In the row layout the auto horizontal push moves the recycle button to the far end. */
   #rail-optimize { margin-top: 0; margin-left: auto; }
-  .rail-avatar { margin-top: 0; margin-left: 0; }
   .app-main { margin-left: 0; padding: var(--page-pad-y) var(--space-xl); }
   .panels { grid-template-columns: 1fr; }
   /* The rail is a top bar here, so a category panel drops below it as a full-width sheet. */
@@ -302,6 +292,8 @@ tr.trace-work .trace-dir-cell { color: var(--color-warning); }
 .cell-swatch.closed { background: var(--color-danger); }
 .cell-swatch.open { background: var(--color-success); }
 .cell-swatch.bin { background: var(--color-warning); }
+.cell-swatch.login { background: var(--color-login); }
+.cell-swatch.binwait { background: var(--color-binwait); }
 .autostore-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); gap: 6px; }
 .gcell { aspect-ratio: 1 / 1; border-radius: var(--radius-sm); }
 .bin-cell { background: var(--color-widget-surface); border: 1px solid var(--color-border); }
@@ -310,6 +302,8 @@ tr.trace-work .trace-dir-cell { color: var(--color-warning); }
 .port-cell.closed { background: var(--color-danger); }
 .port-cell.open { background: var(--color-success); }
 .port-cell.bin { background: var(--color-warning); color: var(--color-text); }
+.port-cell.login { background: var(--color-login); }
+.port-cell.binwait { background: var(--color-binwait); }
 
 /* ---- version line (spec 0014 strand A) ----
    Mirrored from the server host. The update-panel rules that sit beside this one over there are

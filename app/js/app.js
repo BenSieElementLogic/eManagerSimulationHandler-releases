@@ -13,6 +13,8 @@ import {
   staffingCoverage,
   virtualNow,
   formatSimTime,
+  portCellState,
+  portCellLabel,
 } from './format.js';
 
 // --- in-browser bridge --------------------------------------------------------------------------
@@ -574,11 +576,11 @@ function renderGrid(snapshot) {
   const cells = [];
   for (let i = 0; i < cols * 2; i++) cells.push(h('div', { class: 'gcell bin-cell' })); // AutoStore bin field (top surface)
   for (const p of ports) {
-    // "bin in port" for the full operator worktime = a mission admitted but not yet done (missionsAtPort);
-    // fall back to missionsInProgress for older snapshots.
-    const busy = (p.missionsAtPort ?? p.missionsInProgress ?? 0) > 0;
-    const state = !p.isOpen ? 'closed' : (busy ? 'bin' : 'open');
-    cells.push(h('div', { class: `gcell port-cell ${state}`, title: `${p.portCode} — ${state === 'closed' ? 'closed' : state === 'bin' ? 'bin in port' : 'open'}` },
+    // Cell state precedence (spec 0038 Amd C) via the pure portCellState. The mock-only Wasm demo never
+    // sets p.activity, so it renders closed/bin/open exactly as before; login/binwait are mirrored for
+    // parity with the Web host.
+    const state = portCellState(p);
+    cells.push(h('div', { class: `gcell port-cell ${state}`, title: `${p.portCode} — ${portCellLabel(state)}` },
       document.createTextNode(p.portCode)));
   }
   for (let i = ports.length; i < cols; i++) cells.push(h('div', { class: 'gcell empty-cell' }));

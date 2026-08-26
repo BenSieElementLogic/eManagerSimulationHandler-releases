@@ -55,6 +55,34 @@ export function portStatusPill(isOpen) {
   return isOpen ? { cls: 'ok', text: 'Open' } : { cls: 'bad', text: 'Closed' };
 }
 
+/**
+ * The dashboard AutoStore grid cell state for a port snapshot (spec 0038 Amd C). Precedence:
+ * error → closed → login → bin → binwait → open. The mock-only Wasm demo never sets `activity`, so only
+ * closed/bin/open apply; the extra cases are mirrored for parity with the Web host.
+ */
+export function portCellState(p) {
+  const port = p ?? {};
+  const busy = (port.missionsAtPort ?? port.missionsInProgress ?? 0) > 0;
+  if (port.error) return 'error';
+  if (!port.isOpen) return 'closed';
+  if (port.activity === 'loggingIn') return 'login';
+  if (busy) return 'bin';
+  if (port.activity === 'taskReady') return 'binwait';
+  return 'open';
+}
+
+/** Human label for a port grid cell state (for the cell tooltip). */
+export function portCellLabel(state) {
+  switch (state) {
+    case 'closed': return 'closed';
+    case 'login': return 'logging in';
+    case 'bin': return 'bin in port';
+    case 'binwait': return 'waiting for bin delivery';
+    case 'error': return 'needs attention';
+    default: return 'open';
+  }
+}
+
 /** Muse pill descriptor for a mission-activity state. */
 export function missionStatePill(state) {
   switch (state) {

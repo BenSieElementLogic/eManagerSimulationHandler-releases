@@ -24,6 +24,8 @@
   --color-danger:         #dc3545;
   --color-success:        #1f9d6b;
   --color-warning:        #d97a23;
+  --color-login:          #2f6fed;   /* port grid: operator logging in (spec 0038 Amd C) */
+  --color-binwait:        #7c5cff;   /* port grid: task ready, waiting for bin delivery (spec 0038 Amd C) */
 
   /* soft tint washes */
   --color-soft-blue:  #e9f1fd;
@@ -48,7 +50,7 @@
 
   /* radii & sizes */
   --radius-sm:6px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px; --radius-pill:50%;
-  --size-avatar:36px; --size-logo:40px; --size-touch:44px;
+  --size-logo:40px; --size-touch:44px;
   --control-height:40px;   /* shared height for inputs, selects and buttons so they line up */
 
   /* shadows & transitions */
