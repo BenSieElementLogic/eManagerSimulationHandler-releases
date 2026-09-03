@@ -611,9 +611,21 @@ async function apiGetJson(path) {
 }
 
 // --- shift plan editor --------------------------------------------------------------------------
+let availableTaskTypes = []; // Loaded from /api/sim/tasktypes
+
 async function loadStaffingFromServer() {
   const plan = await apiGetJson('staffing');
   if (plan && Array.isArray(plan.shifts)) staffingPlan = plan;
+}
+
+async function loadTaskTypesFromServer() {
+  const types = await apiGetJson('tasktypes');
+  if (types && Array.isArray(types)) {
+    availableTaskTypes = types.filter(t => !t.outdated).map(t => ({
+      id: t.idTaskType,
+      name: t.name || `Task Type ${t.idTaskType}`,
+    }));
+  }
 }
 
 function breaksView(assignment) {
@@ -645,7 +657,7 @@ function renderPortSummary() {
   const ports = discoveredPorts();
   el.textContent = ports.length
     ? `${ports.length} port${ports.length === 1 ? '' : 's'} discovered from eManager.`
-    : 'No ports discovered from eManager — check the Config page.';
+    : 'No ports discovered from eManager — check the eManager Link page.';
 }
 
 function coverageView(shift) {
@@ -719,18 +731,89 @@ function renderShifts() {
     // .assign-add.
     body.append(bulkView(shift, i));
 
-    const person = h('input', { type: 'text', placeholder: 'Person name' });
+    const person = h('input', { type: 'text', placeholder: 'Person name', class: 'person-input' });
     const used = new Set((shift.assignments ?? []).map((a) => a.port));
     const portSel = h('select', {}, h('option', { value: '', text: 'Port…' }),
       ...knownPorts.filter((p) => !used.has(p)).map((p) => h('option', { value: p, text: p })));
     const wt = h('input', { type: 'number', min: '0', step: '0.5', placeholder: 'Worktime s', class: 'wt-input' });
+    
+    // Task type multi-select: reusable helper creates the dropdown with current selection
+    const createTaskTypeMultiSelect = (initialIds = [], idPrefix = '') => {
+      // Ensure all IDs are numbers for consistent comparison
+      const selectedIds = initialIds.map(id => Number(id));
+      const dropdown = h('div', { class: 'task-type-select' });
+      
+      const updateButtonText = () => {
+        if (selectedIds.length === 0) {
+          input.value = '';
+        } else {
+          const names = selectedIds.map(id => {
+            const tt = availableTaskTypes.find(t => t.id === id);
+            return tt ? tt.name : String(id);
+          });
+          input.value = names.join(', ');
+        }
+      };
+      
+      const input = h('input', { 
+        type: 'text',
+        class: 'task-type-input',
+        placeholder: 'Task Types',
+        readonly: true,
+        onclick: (e) => {
+          e.preventDefault();
+          dropdown.classList.toggle('open');
+        }
+      });
+      
+      const menu = h('div', { class: 'task-type-menu' });
+      
+      if (availableTaskTypes.length > 0) {
+        availableTaskTypes.forEach(tt => {
+          const checkbox = h('input', { 
+            type: 'checkbox', 
+            id: `tt-${idPrefix}-${tt.id}`, 
+            value: tt.id
+          });
+          // Set checked state as a property, not attribute
+          checkbox.checked = selectedIds.includes(tt.id);
+          
+          const label = h('label', { 
+            for: `tt-${idPrefix}-${tt.id}`, 
+            text: tt.name
+          });
+          checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+              if (!selectedIds.includes(tt.id)) {
+                selectedIds.push(tt.id);
+              }
+            } else {
+              const idx = selectedIds.indexOf(tt.id);
+              if (idx !== -1) selectedIds.splice(idx, 1);
+            }
+            updateButtonText();
+          });
+          menu.append(h('div', { class: 'task-type-option' }, checkbox, label));
+        });
+      } else {
+        menu.append(h('div', { class: 'task-type-empty', text: 'No task types configured' }));
+      }
+      
+      updateButtonText();
+      dropdown.append(input, menu);
+      return { dropdown, selectedIds };
+    };
+    
+    const { dropdown: taskTypeDropdown, selectedIds: taskTypeIds } = createTaskTypeMultiSelect([], `${shift.name}-add`);
+    
     // spec 0046: per-port form sits directly under bulk staffing and ABOVE the assignment rows.
-    body.append(h('div', { class: 'assign-add' }, person, portSel, wt,
+    body.append(h('div', { class: 'assign-add' }, person, portSel, wt, taskTypeDropdown,
       h('button', { onclick: () => {
         const name = person.value.trim();
         if (!name || !portSel.value) return;
         const assignment = { person: name, port: portSel.value, breaks: [] };
         if (wt.value !== '') assignment.worktimeSeconds = Number(wt.value);
+        if (taskTypeIds.length > 0) assignment.taskTypeIds = [...taskTypeIds];
         (shift.assignments ??= []).push(assignment);
         renderShifts();
       } }, h('i', { class: 'fa-solid fa-user-plus' }), document.createTextNode(' Assign'))));
@@ -739,10 +822,34 @@ function renderShifts() {
     body.append(coverageView(shift));
 
     (shift.assignments ?? []).forEach((a, j) => {
+      // Task type multi-select for existing assignment
+      const { dropdown: rowTaskTypeDropdown, selectedIds: rowTaskTypeIds } = createTaskTypeMultiSelect(
+        a.taskTypeIds || [], 
+        `${shift.name}-${j}`
+      );
+      
+      // Update assignment when selection changes (selectedIds is live-updated by the dropdown)
+      const syncToAssignment = () => {
+        if (rowTaskTypeIds.length > 0) {
+          a.taskTypeIds = [...rowTaskTypeIds];
+        } else {
+          delete a.taskTypeIds;
+        }
+      };
+      
+      // Watch for changes by periodically syncing (the checkboxes update selectedIds directly)
+      rowTaskTypeDropdown.addEventListener('click', (e) => {
+        // Sync when menu closes (clicked outside or on button again)
+        if (e.target.classList.contains('task-type-btn') && rowTaskTypeDropdown.classList.contains('open')) {
+          syncToAssignment();
+        }
+      });
+      
       body.append(h('div', { class: 'assign-row' },
         h('span', { class: 'pill ok', text: a.person }),
         h('span', { class: 'assign-arrow', text: `→ ${a.port}` }),
         h('span', { class: 'assign-wt', text: a.worktimeSeconds != null ? `${a.worktimeSeconds}s` : 'default wt' }),
+        rowTaskTypeDropdown,
         breaksView(a),
         h('button', { class: 'ghost', title: 'Remove assignment', onclick: () => { shift.assignments.splice(j, 1); renderShifts(); } },
           h('i', { class: 'fa-solid fa-xmark' }))));
@@ -828,7 +935,7 @@ function wireTrace() {
   });
 }
 
-// --- eManager config (Config view) --------------------------------------------------------------
+// --- eManager config (eManager Link view) --------------------------------------------------------
 // The rail logo is mode-branded (spec: blue in Mock, Element red in Real). Reflect the active eManager
 // mode onto <html data-mode> so the CSS in dashboard.css can colour the logo; absent = mock/blue.
 function applyMode(mode) {
@@ -1527,6 +1634,7 @@ async function init() {
   await renderVersion();
   applyMode((await apiGetJson('config'))?.mode); // brand the rail logo before any view is opened
   await loadStaffingFromServer();
+  await loadTaskTypesFromServer(); // Load available task types for assignment dropdown
   const status = await getStatus();
   if (status) {
     applyStatus(status);

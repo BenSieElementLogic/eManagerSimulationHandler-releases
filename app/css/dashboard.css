@@ -166,6 +166,12 @@ button.rail-icon { background: none; border: 0; padding: 0; font: inherit; }
   max-width: 1280px;
 }
 
+@media (min-width: 1281px) {
+  .app-main {
+    max-width: 1920px;
+  }
+}
+
 /* ---- page-header band ---- */
 .page-header { margin-bottom: var(--space-3xl); }
 .eyebrow { font-size: 13px; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
@@ -364,3 +370,34 @@ tr.trace-work .trace-dir-cell { color: var(--color-warning); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---- Task type multi-select for staffing assignments ---- */
+.task-type-select { position: relative; display: inline-block; }
+.task-type-input { 
+  padding: var(--space-xs) var(--space-sm); 
+  padding-right: 28px; /* Space for caret icon */
+  font-size: 13px; 
+  border: 1px solid var(--color-border); 
+  border-radius: var(--radius-sm);
+  background: var(--color-surface); 
+  color: var(--txt); 
+  cursor: pointer;
+  min-width: 160px;
+  /* Add dropdown caret */
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path fill="rgb(100,116,139)" d="M2 4l4 4 4-4z"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+.task-type-input:hover { background-color: var(--color-hover); }
+.task-type-input:focus { outline: 2px solid var(--color-brand); outline-offset: 1px; }
+.task-type-menu { display: none; position: absolute; top: 100%; left: 0; z-index: 10;
+                  min-width: 200px; margin-top: 2px; padding: var(--space-xs);
+                  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+                  background: var(--color-surface); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.task-type-select.open .task-type-menu { display: block; }
+.task-type-option { padding: var(--space-xs); display: flex; align-items: center; gap: var(--space-xs); }
+.task-type-option:hover { background: var(--color-hover); }
+.task-type-option input[type="checkbox"] { cursor: pointer; }
+.task-type-option label { cursor: pointer; font-size: 13px; }
+.task-type-empty { padding: var(--space-sm); font-size: 13px; color: var(--mut); }
+.assign-tasktypes { font-size: 12px; color: var(--mut); }

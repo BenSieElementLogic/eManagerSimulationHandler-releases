@@ -23,6 +23,7 @@ button { display:inline-flex; align-items:center; justify-content:center; gap:va
 button:hover:not(:disabled) { background:var(--color-brand-hover); }
 button:disabled { opacity:.45; cursor:not-allowed; }
 button.ghost { background:var(--color-surface); color:var(--txt); border:1px solid var(--color-border); }
+button.ghost:hover:not(:disabled) { color:var(--color-on-accent); }
 .icon-btn { width:var(--control-height); min-width:var(--control-height); height:var(--control-height); padding:0; }
 
 /* Panel / card container */
