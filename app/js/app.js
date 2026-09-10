@@ -76,6 +76,7 @@ const kpiFormatters = {
   completedPicklists: formatCount,
   averageWorktime: formatDuration,
   throughputPerHour: formatThroughput,
+  presentationsPerHour: formatThroughput,
 };
 
 function renderKpis(snapshot) {

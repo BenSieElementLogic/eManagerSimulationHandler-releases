@@ -64,6 +64,9 @@ export function portCellState(p) {
   const port = p ?? {};
   const busy = (port.missionsAtPort ?? port.missionsInProgress ?? 0) > 0;
   if (port.error) return 'error';
+  // A Finished port (spec 0074) is terminal for the run and must read distinctly from an ordinary
+  // closed/off-shift port, even though isOpen is also false by the time this renders.
+  if (port.isFinished) return 'finished';
   if (!port.isOpen) return 'closed';
   if (port.activity === 'loggingIn') return 'login';
   if (busy) return 'bin';
@@ -76,6 +79,7 @@ export function portCellState(p) {
 export function portCellLabel(state) {
   switch (state) {
     case 'closed': return 'closed';
+    case 'finished': return 'Done';
     case 'login': return 'logging in';
     case 'bin': return 'bin in port';
     case 'binwait': return 'waiting for bin delivery';

@@ -136,7 +136,10 @@
         <div class="card bad"><div class="n" data-kpi="missionsFailed">0</div><div class="l">Failed</div></div>
         <div class="card"><div class="n" data-kpi="completedPicklists">0</div><div class="l">Picklists done</div></div>
         <div class="card"><div class="n" data-kpi="averageWorktime">0.0s</div><div class="l">Avg worktime</div></div>
-        <div class="card ok"><div class="n" data-kpi="throughputPerHour">0</div><div class="l">Throughput / hr</div></div>
+        <div class="card ok"><div class="n" data-kpi="throughputPerHour">0</div><div class="l">Missions / hr</div></div>
+        <div class="card ok" title="AutoStore bin presentations to a port per hour (spec 0073) — distinct from Missions/hr, which counts confirmed missions, not bin arrivals. In mock mode they track ~1:1; on real hardware they diverge with bin consolidation / multi-bin tasks.">
+          <div class="n" data-kpi="presentationsPerHour">0</div><div class="l">Bin Presentations / hr</div>
+        </div>
       </section>
 
       <section class="panel controls" aria-label="Simulation controls">
@@ -182,6 +185,7 @@
             <span class="lg"><span class="cell-swatch login"></span> Logging in</span>
             <span class="lg"><span class="cell-swatch binwait"></span> Waiting for bin</span>
             <span class="lg"><span class="cell-swatch awaiting"></span> Open, awaiting work</span>
+            <span class="lg"><span class="cell-swatch finished"></span> Done (work exhausted)</span>
             <span class="lg"><span class="cell-swatch bin"></span> Bin in port</span>
           </div>
           <div id="autostore-grid" class="autostore-grid"></div>
