@@ -15,6 +15,7 @@ import {
   formatSimTime,
   portCellState,
   portCellLabel,
+  simStopControlsView,
 } from './format.js';
 
 // --- in-browser bridge --------------------------------------------------------------------------
@@ -154,25 +155,75 @@ const speedValue = document.getElementById('sim-speed-value');
 const worktimeInput = document.getElementById('default-worktime'); // global default worktime (in the Shift view)
 const randomnessInput = document.getElementById('worktime-randomness'); // ±% worktime randomness (Shift view)
 
+// Spec 0125 D7: the WASM host has only ONE Stop-phase source — a local in-flight Stop — since
+// BrowserSimulationRuntime has no HTTP surface and a browser tab cannot poll itself mid-await; D12: the
+// error text from a failed control('stop') persists until the next Start or Stop click.
+let lastKnownRunning = null;
+let localStopStartedAt = null;
+let lastStopError = null;
+// Amended 2026-09-29 (Issue 3a consistency): a 1 Hz render-only tick, alive only while locally Stopping, so
+// the elapsed seconds keep advancing during a slow WASM Stop instead of staying frozen at whatever value
+// was rendered on the click — WASM has no fetch to decouple from (D7), but it still needs SOMETHING to
+// re-render it once a second while the click's own await is in flight.
+let stopRenderTimer = null;
+
+function currentStopState() {
+  if (localStopStartedAt !== null) {
+    return { phase: 'Stopping', elapsedMs: Date.now() - localStopStartedAt, isRunning: lastKnownRunning, error: lastStopError };
+  }
+  return { isRunning: lastKnownRunning, error: lastStopError };
+}
+
+// Spec 0125 D9/D10 (amended 2026-09-29): renders the pure simStopControlsView onto #sim-state (the ONE
+// status pill — stopped/running/Stopping…Ns, D10 reversed) plus btn-start/btn-stop and the error-only
+// #sim-stop-msg. See the Web host's copy for why #sim-state is rendered here and not in applyStatus.
+function renderStopControls() {
+  const state = currentStopState();
+  const view = simStopControlsView(state);
+  const startBtn = document.getElementById('btn-start');
+  const stopBtn = document.getElementById('btn-stop');
+  const stopIcon = document.getElementById('btn-stop-icon');
+  const stopLabel = document.getElementById('btn-stop-label');
+  const stopMsg = document.getElementById('sim-stop-msg');
+  if (startBtn) startBtn.disabled = view.startDisabled;
+  if (stopBtn) stopBtn.disabled = view.stopDisabled;
+  if (stopIcon) stopIcon.className = view.stopIcon;
+  if (stopLabel) stopLabel.textContent = view.stopLabel;
+  if (simState) {
+    simState.textContent = view.simStateText;
+    simState.className = `pill ${view.simStateClass}`.trim();
+  }
+  if (stopMsg) {
+    stopMsg.textContent = view.errorMessage;
+    stopMsg.className = 'pill bad';
+    stopMsg.hidden = !view.errorVisible;
+  }
+
+  const stopping = state.phase === 'Stopping';
+  if (stopping && stopRenderTimer === null) {
+    stopRenderTimer = setInterval(renderStopControls, 1000);
+  } else if (!stopping && stopRenderTimer !== null) {
+    clearInterval(stopRenderTimer);
+    stopRenderTimer = null;
+  }
+}
+
 function applyStatus(status) {
   if (!status) {
     return;
   }
-  simState.textContent = status.isRunning ? 'running' : 'stopped';
-  simState.className = `pill ${status.isRunning ? 'ok' : ''}`.trim();
   // Start/Stop are mutually exclusive with the run state: you cannot start a running sim, nor stop a
-  // stopped one, so grey out the button that would be a no-op.
+  // stopped one — simStopControlsView (via renderStopControls, spec 0125) greys out whichever is a no-op.
+  // #sim-state itself is rendered by renderStopControls alone (D10 reversed 2026-09-29).
   const running = !!status.isRunning;
-  const startBtn = document.getElementById('btn-start');
-  const stopBtn = document.getElementById('btn-stop');
-  if (startBtn) startBtn.disabled = running;
-  if (stopBtn) stopBtn.disabled = !running;
+  lastKnownRunning = running;
   const auto = document.getElementById('chk-auto');
   if (auto) auto.checked = !!status.autoGenerate;
   applySpeedToControl(status);
   setSimAnchor(status);
   renderSimClock();
   renderShiftTiles();
+  renderStopControls();
 }
 
 // Hydrate the speed slider + its readout from the server's factor, without ever fighting a drag in
@@ -190,10 +241,28 @@ function worktimeLabel(value) {
 
 function wireControls() {
   document.getElementById('btn-start').addEventListener('click', async () => {
+    // Spec 0125 D12: a Start click also clears a lingering Stop-failure error.
+    lastStopError = null;
     applyStatus(await control('start'));
   });
   document.getElementById('btn-stop').addEventListener('click', async () => {
-    applyStatus(await control('stop'));
+    // Spec 0125 D12/D7: render the spinner the INSTANT the click fires, then fall back to a visible error
+    // on a failed control('stop') — today's control() returns null on any rejected route, and applyStatus
+    // silently no-ops on null, so without this the operator sees nothing at all on a failed Stop.
+    lastStopError = null;
+    localStopStartedAt = Date.now();
+    renderStopControls();
+    try {
+      const status = await control('stop');
+      if (!status) {
+        lastStopError = 'Stop failed — the simulation may still be running.';
+      } else {
+        applyStatus(status);
+      }
+    } finally {
+      localStopStartedAt = null;
+      renderStopControls();
+    }
   });
   document.getElementById('btn-seed').addEventListener('click', async () => {
     applyStatus(await control('seed'));
@@ -282,7 +351,9 @@ function setView(name) {
   }
   if (name === 'orders') {
     refreshOrders();
-    if (!ordersPoll) ordersPoll = setInterval(refreshOrders, 2000);
+    // spec 0096: match the server-side Actual-orders TTL (~10s). Wasm is mock-only (no DB read), changed for
+    // parity with the Web host. Still only polls while the view is open (cleared on hide below).
+    if (!ordersPoll) ordersPoll = setInterval(refreshOrders, 10000);
   } else if (ordersPoll) {
     clearInterval(ordersPoll);
     ordersPoll = null;
@@ -309,15 +380,89 @@ function setActiveRail(name) {
   if (section) document.querySelector(`.rail-icon[data-section="${section}"]`)?.classList.add('is-active');
 }
 
+// --- routing (spec 0122 D8): the same router as the Web host, minus the guard hook, the run-detail
+// parameter and the hide-function reroutes it has no use for (the demo has no feature gates, no Settings
+// view, no Run history). ---------------------------------------------------------------------------
+let routerStarted = false;
+
+/** hash -> { view, param }. The demo has no view that takes a parameter, so `<x>/<y>` is always unknown. */
+function parseRoute(hash) {
+  const raw = (hash || '').replace(/^#/, '');
+  let decoded;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return { view: null, param: null }; // malformed escape -> unknown route
+  }
+  if (decoded.includes('/')) return { view: null, param: null };
+  return { view: decoded, param: null };
+}
+
+/** D4: a route is routable iff its `.view` exists, isn't hidden, and its rail link (if any) isn't hidden. */
+function isRoutable(view) {
+  const el = document.querySelector(`.view[data-view="${view}"]`);
+  if (!el || el.hidden) return false;
+  const link = document.querySelector(`.rail-subnav[data-view="${view}"]`);
+  if (link && link.closest('[hidden]')) return false;
+  return true;
+}
+
+/** D1: reads location.hash, resolves availability, and calls setView exactly once — the only caller of
+ * setView from here on. A no-op until startRouter() has run (D3). */
+function route() {
+  if (!routerStarted) return;
+  const parsed = parseRoute(location.hash);
+  const view = parsed.view;
+  if (!view || !isRoutable(view)) {
+    navigate('dashboard', { replace: true });
+    return;
+  }
+  setView(view);
+}
+
+/** D1: the only way app code changes screens. Same-route clicks re-render via replaceState (no duplicate
+ * history entry). */
+function navigate(target, { replace = false } = {}) {
+  const current = (location.hash || '').replace(/^#/, '');
+  const url = location.pathname + location.search + '#' + target;
+  if (target === current) {
+    history.replaceState(null, '', url);
+  } else if (replace) {
+    history.replaceState(null, '', url);
+  } else {
+    history.pushState(null, '', url);
+  }
+  route();
+}
+
+/** D2: the ONLY listener — fires for Back/Forward, an address-bar edit, or a location.hash assignment;
+ * never for our own pushState/replaceState. */
+function onHashChange() {
+  route();
+}
+
+/** D3: registers the single hashchange listener, then renders the current hash (redirecting it if it is
+ * empty/unknown/unavailable). Called at the same boot point the old boot-time hash read used to run. */
+function startRouter() {
+  window.addEventListener('hashchange', onHashChange);
+  routerStarted = true;
+  route();
+}
+
 function wireNav() {
+  const navigateOnClick = (e, a) => {
+    // D7: a modified click is left entirely to the browser — Ctrl/Cmd-click and middle-click open that
+    // screen in a new tab, which then deep-links.
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    navigate(a.dataset.view);
+  };
   document.querySelectorAll('a.rail-subnav[data-view]').forEach((a) => {
-    a.addEventListener('click', (e) => { e.preventDefault(); setView(a.dataset.view); });
+    a.addEventListener('click', (e) => navigateOnClick(e, a));
   });
   document.querySelectorAll('a.view-link[data-view]').forEach((a) => {
-    a.addEventListener('click', (e) => { e.preventDefault(); setView(a.dataset.view); });
+    a.addEventListener('click', (e) => navigateOnClick(e, a));
   });
-  const initial = (location.hash || '').replace('#', '');
-  if (document.querySelector(`.view[data-view="${initial}"]`)) setView(initial);
 }
 
 // --- rail category menu (spec 0038) -------------------------------------------------------------
@@ -464,9 +609,6 @@ function wireRailMenu() {
     if (!root.contains(e.target)) closeMenu();
   });
 
-  // Test hook (elws exports these for its tests too): the aim geometry + timing constants, so the
-  // E2E can pin isAimingAtPanel's cases directly in the real engine.
-  window.__rail = { isAimingAtPanel, AIM_TOLERANCE, AIM_HOLD_MS, AUTO_CLOSE_MS };
 }
 
 
@@ -577,9 +719,9 @@ function renderGrid(snapshot) {
   const cells = [];
   for (let i = 0; i < cols * 2; i++) cells.push(h('div', { class: 'gcell bin-cell' })); // AutoStore bin field (top surface)
   for (const p of ports) {
-    // Cell state precedence (spec 0038 Amd C) via the pure portCellState. The mock-only Wasm demo never
-    // sets p.activity, so it renders closed/bin/open exactly as before; login/binwait are mirrored for
-    // parity with the Web host.
+    // Cell state precedence (spec 0038 Amd C) via the pure portCellState. Since spec 0207 the demo runs every pick
+    // through the real port session against the fake eManager, so p.activity carries the session phase (login,
+    // binwait, awaiting, ...) exactly as in the Web host.
     const state = portCellState(p);
     cells.push(h('div', { class: `gcell port-cell ${state}`, title: `${p.portCode} — ${portCellLabel(state)}` },
       document.createTextNode(p.portCode)));
@@ -622,7 +764,7 @@ async function loadStaffingFromServer() {
 async function loadTaskTypesFromServer() {
   const types = await apiGetJson('tasktypes');
   if (types && Array.isArray(types)) {
-    availableTaskTypes = types.filter(t => !t.outdated).map(t => ({
+    availableTaskTypes = types.filter(t => !t.isOutdated).map(t => ({
       id: t.idTaskType,
       name: t.name || `Task Type ${t.idTaskType}`,
     }));
@@ -636,12 +778,18 @@ function breaksView(assignment) {
       document.createTextNode(`${b.start}–${b.end}`),
       h('button', { class: 'link-x', title: 'remove break', onclick: () => { assignment.breaks.splice(k, 1); renderShifts(); } }, document.createTextNode('×'))));
   });
-  const bs = h('input', { type: 'time', value: '12:00', class: 'brk' });
-  const be = h('input', { type: 'time', value: '12:30', class: 'brk' });
-  wrap.append(bs, be, h('button', { class: 'ghost', onclick: () => {
+  // spec 0185 D6: both inputs start empty (no implied 12:00–12:30 break); "+ break" needs both values.
+  const bs = h('input', { type: 'time', value: '', class: 'brk brk-start' });
+  const be = h('input', { type: 'time', value: '', class: 'brk brk-end' });
+  const add = h('button', { class: 'ghost add-break', disabled: true, onclick: () => {
+    if (!bs.value || !be.value) return;
     (assignment.breaks ??= []).push({ start: bs.value, end: be.value });
     renderShifts();
-  } }, document.createTextNode('+ break')));
+  } }, document.createTextNode('+ break'));
+  const sync = () => { add.disabled = !(bs.value && be.value); };
+  bs.addEventListener('input', sync);
+  be.addEventListener('input', sync);
+  wrap.append(bs, be, add);
   return wrap;
 }
 
@@ -1054,7 +1202,7 @@ async function refreshOrders() {
 // the ~1 Hz batch poll. All of it is INTENTIONALLY ABSENT from this in-browser build and must stay
 // absent: that feature's entire value is writing stock into a REAL customer eManager over
 // POST api/directputaway, and this Pages demo is mock-only with nothing downstream consuming the stored
-// stock. Do not "fix" this divergence in a mirroring pass; wasm.e2e.mjs asserts the view is NOT here.
+// stock. Do not "fix" this divergence in a mirroring pass; RouteTableMarkupTests asserts the view is NOT here.
 // The shared js/format.js IS mirrored byte-for-byte (spec 0012 §5), so putawaySummary/batchCounters
 // exist in this build too — deliberately unused.
 //
@@ -1063,7 +1211,7 @@ async function refreshOrders() {
 // version line is INTENTIONALLY ABSENT from this in-browser build and must stay absent: a browser tab
 // cannot download to disk, swap a directory or restart a process, and the Pages demo is always-latest
 // by construction (wasm-pages.yml replaces the whole app/ folder on every main push). Do not "fix"
-// this divergence in a mirroring pass; wasm.e2e.mjs asserts the update view is NOT here.
+// this divergence in a mirroring pass; RouteTableMarkupTests asserts the update view is NOT here.
 async function renderVersion() {
   const el = document.getElementById('app-version');
   if (!el) return;
@@ -1622,6 +1770,7 @@ function wireOptimizeNoop() {
 async function init() {
   wireControls();
   wireNav();
+  startRouter(); // spec 0122 D3: no feature gates in this demo, so route right after wireNav's click wiring
   wireRailMenu();
   wireShiftEditor();
   wireTrace();
@@ -1642,6 +1791,7 @@ async function init() {
     worktimeInput.value = String(status.worktimeMeanSeconds);
     if (randomnessInput) randomnessInput.value = String(status.worktimeRandomnessPercent ?? 0);
   }
+  document.documentElement.dataset.booted = 'true'; // boot-complete marker for the browser E2E (spec 0150)
 
   // Tick the virtual clock every second so the dashboard time (and break-sensitive shift tiles)
   // stay live even between snapshots.

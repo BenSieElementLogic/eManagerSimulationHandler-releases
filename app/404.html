@@ -75,7 +75,7 @@
          INTENTIONALLY ABSENT from this in-browser build and must stay absent — that feature writes
          stock into a REAL customer eManager over POST api/directputaway; this Pages demo is mock-only
          by construction and nothing downstream consumes the stored stock, so the flow would end at a
-         counter. Do not "fix" this divergence in a mirroring pass; wasm.e2e.mjs asserts the putaway
+         counter. Do not "fix" this divergence in a mirroring pass; RouteTableMarkupTests asserts the putaway
          view is NOT here. js/format.js IS mirrored byte-for-byte (spec 0012 §5), so its
          putawaySummary/batchCounters helpers live here too, simply unused. -->
     <aside class="rail-panel" data-section="simulate" aria-label="Simulate">
@@ -128,7 +128,7 @@
     </header>
 
     <!-- ===== Dashboard view: KPI + controls ===== -->
-    <div class="view" data-view="dashboard">
+    <div class="view hidden" data-view="dashboard">
       <section id="dashboard" class="kpi-grid" aria-label="Key performance indicators">
         <div class="card"><div class="n" data-kpi="totalPicks">0</div><div class="l">Total picks</div></div>
         <div class="card"><div class="n" data-kpi="totalPutaways">0</div><div class="l">Total putaways</div></div>
@@ -144,7 +144,7 @@
 
       <section class="panel controls" aria-label="Simulation controls">
         <button id="btn-start"><i class="fa-solid fa-play"></i> Start</button>
-        <button id="btn-stop" class="ghost"><i class="fa-solid fa-stop"></i> Stop</button>
+        <button id="btn-stop" class="ghost"><i id="btn-stop-icon" class="fa-solid fa-stop"></i> <span id="btn-stop-label">Stop</span></button>
         <button id="btn-seed" class="ghost"><i class="fa-solid fa-seedling"></i> Seed demo</button>
         <button id="btn-clear" class="ghost" title="Reset the KPIs / statistics"><i class="fa-solid fa-eraser"></i> Clear</button>
         <div class="spacer"></div>
@@ -161,6 +161,7 @@
           <span id="sim-speed-value" class="sim-speed-value">x1</span>
         </span>
         <span id="sim-state" class="pill">stopped</span>
+        <span id="sim-stop-msg" class="pill" hidden></span>
       </section>
 
       <div class="dash-lower">

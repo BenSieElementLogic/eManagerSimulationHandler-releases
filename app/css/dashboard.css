@@ -373,6 +373,15 @@ tr.trace-work .trace-dir-cell { color: var(--color-warning); }
   * { animation: none !important; transition: none !important; }
 }
 
+/* Spec 0125 amendment (2026-09-29, Issue 1): the Stop button's spinner is an essential status indicator,
+   not decoration — exempt it from the reduced-motion opt-out above AND from Font Awesome's own fa-spin
+   reduced-motion opt-out (an RDP-driven lab browser commonly reports prefers-reduced-motion: reduce, which
+   is what left the lab's Stop spinner frozen). An id selector outranks the `*` rule above and FA's own
+   class selector on specificity alone, so this applies regardless of source order or media query. */
+#btn-stop-icon.fa-spin {
+  animation: fa-spin 2s infinite linear !important;
+}
+
 /* ---- Task type multi-select for staffing assignments ---- */
 .task-type-select { position: relative; display: inline-block; }
 .task-type-input { 

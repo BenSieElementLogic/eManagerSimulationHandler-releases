@@ -238,3 +238,51 @@ export function mappingSummary(result) {
   const ignored = columns.length - mapped;
   return `Addressing: ${addressing} · ${countLabel(mapped, 'column')} mapped · ${ignored} ignored`;
 }
+
+/**
+ * Spec 0125 D8 (amended 2026-09-29): the Stop-progress controls' pure view — a spinner + elapsed time,
+ * deliberately no step-level detail. `state = { phase, elapsedMs, isRunning, error }`.
+ * <p>
+ * `#sim-state` is the ONE status pill (D10, reversed 2026-09-29): `simStateText`/`simStateClass` cover
+ * every non-error state — `stopped` (no class), `running` (`ok`), and `Stopping… <N>s` (`loading`) — so
+ * the dashboard never shows a running/stopped pill and a "Stopping…" pill side by side.
+ * `errorVisible`/`errorMessage` drive `#sim-stop-msg` alone, and ONLY for a failed Stop — never for the
+ * Stopping text, which now lives in `simStateText`. Precedence: `phase === 'Stopping'` outranks an `error`
+ * (AC15) — a stale error from a previous failed Stop must not linger, visibly or not, over a new Stop
+ * actually in flight, so `errorVisible` is `false` whenever `phase === 'Stopping'`. A non-object, `null` or
+ * otherwise malformed `state` falls through every branch below to the idle/not-running row and never
+ * throws (AC14).
+ */
+export function simStopControlsView(state) {
+  const s = state && typeof state === 'object' ? state : {};
+  const isRunning = Boolean(s.isRunning);
+
+  if (s.phase === 'Stopping') {
+    const seconds = Math.max(0, Math.floor((Number(s.elapsedMs) || 0) / 1000));
+    return {
+      startDisabled: true,
+      stopDisabled: true,
+      stopIcon: 'fa-solid fa-spinner fa-spin',
+      stopLabel: 'Stopping…',
+      simStateText: `Stopping… ${seconds}s`,
+      simStateClass: 'loading',
+      errorVisible: false,
+      errorMessage: '',
+    };
+  }
+
+  const idleRow = {
+    startDisabled: isRunning,
+    stopDisabled: !isRunning,
+    stopIcon: 'fa-solid fa-stop',
+    stopLabel: 'Stop',
+    simStateText: isRunning ? 'running' : 'stopped',
+    simStateClass: isRunning ? 'ok' : '',
+  };
+
+  if (s.error) {
+    return { ...idleRow, errorVisible: true, errorMessage: String(s.error) };
+  }
+
+  return { ...idleRow, errorVisible: false, errorMessage: '' };
+}
